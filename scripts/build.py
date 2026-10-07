@@ -4,9 +4,10 @@ r"""Embed the weapon data and assets into docs/index.html.
 
 Both default to sibling folders of this repo. Nothing is read from the game here: every weapon, stat,
 recipe and upgrade link comes from the MH3U Collection Tracker's generated docs/data/ (which reads the
-game -- see that repo's scripts/build_data.py), along with its rarity icons, monster icons, textures
-and font. The MHGU Weapon Trees page supplies the two small icon sets this app shares with it: the
-coating icons and the Hunting Horn note glyph (recoloured here to the tracker's 3U note colours).
+game -- see that repo's scripts/build_data.py), along with its rarity icons, coating icons, monster
+icons, textures and font. The MHGU Weapon Trees page supplies the Hunting Horn note glyph (recoloured
+here to the tracker's 3U note colours), and the coating icons too when the tracker's data predates
+its own.
 
 Only the block between the DATA:BEGIN / DATA:END markers in docs/index.html is rewritten, so the
 app's code stays hand-edited in place.
@@ -44,7 +45,8 @@ THEME_ICONS = {
 # Hunting Horn notes: the tracker's names and colours (styles.css .note-*), drawn with the MHGU app's glyph.
 NOTE_COLOURS = {'White': '#f2f2f2', 'Purple': '#a05ad0', 'Blue': '#4a7ff0', 'Red': '#e04848',
                 'Yellow': '#e8d23a', 'Orange': '#ef8f2e', 'Green': '#4caf50', 'Sky': '#7fd6f5'}
-# 3U coating names -> the MHGU app's coating icon (by colour). Paint has no icon there and stays text.
+# Older tracker data names coatings only; those take the MHGU app's coating icon (by colour), and Paint,
+# which has none there, stays text. Newer data carries the game's own bottle icon and colour instead.
 COATING_ICON = {'Power': 'Red', 'C-Range': 'White', 'Poison': 'Purple', 'Paralysis': 'Yellow',
                 'Sleep': 'Light_Blue', 'Exhaust': 'Blue'}
 GUNNER = {'light_bowgun', 'heavy_bowgun', 'bow'}
@@ -103,9 +105,12 @@ def extra(cls, st, S):
     if cls == 'gunlance':
         return [S(st['shell'])]
     if cls == 'bow':
+        # The tracker's newer shape: charges [name, loadUp], coatings [label, icon, colour].
+        # Plain strings are the older shape, still read so an older tracker checkout builds.
+        charges = [c if isinstance(c, list) else [c, 0] for c in st['charges']]
         return [S(st['arc']) if st.get('arc') else -1,
-                [[S(re.sub(r' L(\d)$', r' Lv\1', c)), 0] for c in st['charges']],
-                [S(c) for c in st['coatings']]]
+                [[S(re.sub(r' L(\d)$', r' Lv\1', name)), load_up] for name, load_up in charges],
+                [S(c[0] if isinstance(c, list) else c) for c in st['coatings']]]
     if cls in ('light_bowgun', 'heavy_bowgun'):
         groups, order = {}, []
         for name, cap in st['ammo']:          # in the game's item order: Normal S Lv1, Lv2, ...
@@ -191,7 +196,19 @@ def main():
         'title': data_uri(os.path.join(TDOCS, 'assets', 'titlebar-background.png'), 'image/png'),
     }
 
-    coats = {'map': COATING_ICON, 'col': {k: gu['COATS']['col'][k] for k in set(COATING_ICON.values())}}
+    game_coats = {}
+    for st in json.load(open(os.path.join(TDOCS, 'data', 'stats', 'bow.json'), encoding='utf-8'))['byId'].values():
+        for c in st['coatings']:
+            if isinstance(c, list):
+                game_coats[c[0]] = c
+    if game_coats:
+        # The game's own coating bottles (44 px, doubled from its 22 px cells by the tracker).
+        coats = {'map': {label: icon for label, icon, _ in game_coats.values()},
+                 'col': {icon: {'c': col, 'i': data_uri(os.path.join(TDOCS, 'assets', 'coatings', icon + '.png'),
+                                                         'image/png')}
+                         for _, icon, col in game_coats.values()}}
+    else:
+        coats = {'map': COATING_ICON, 'col': {k: gu['COATS']['col'][k] for k in set(COATING_ICON.values())}}
 
     # The MHGU app's eighth-note glyph, filled with each 3U note colour. White keeps its outline.
     white = base64.b64decode(gu['NOTE_ICONS']['White'].split(',', 1)[1]).decode()

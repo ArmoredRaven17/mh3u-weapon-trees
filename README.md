@@ -26,9 +26,9 @@ so it's gone. Rarity is per weapon, from 1 to 10, in the game's own name colours
 
 - **[mh3u-collection-tracker](https://github.com/ArmoredRaven17/mh3u-collection-tracker)** provides
   the weapon stats, recipes and upgrade links (`docs/data/`, which that repo reads from the game
-  itself), the rarity icons, the monster theme icons, the textures and the font.
-- **[mhgu-weapon-trees](https://github.com/ArmoredRaven17/mhgu-weapon-trees)** provides the coating
-  icons and the Hunting Horn note glyph. The build recolours the glyph to the tracker's 3U note colours.
+  itself), the rarity and coating icons, the monster theme icons, the textures and the font.
+- **[mhgu-weapon-trees](https://github.com/ArmoredRaven17/mhgu-weapon-trees)** provides the Hunting
+  Horn note glyph. The build recolours it to the tracker's 3U note colours.
 
 ```
 python scripts/build.py
