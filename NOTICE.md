@@ -16,16 +16,15 @@ by [scripts/build.py](scripts/build.py) from the
 [MH3U Collection Tracker](https://github.com/ArmoredRaven17/mh3u-collection-tracker)'s generated
 `docs/data/`. That project reads them from a personally owned copy of the game, and its NOTICE
 covers how. The icons come from the same project and are all the game's own: the weapon icons in its
-Rare 1-10 colours, the coating bottles in each coating's own colour, and the theme monster icons.
-**No game files are redistributed.**
+Rare 1-10 colours, the coating bottles in each coating's own colour, the Hunting Horn note glyphs in
+the colours the game's HUD tints them, and the theme monster icons. **No game files are
+redistributed.**
 
 How weapons are grouped into lanes is this project's own layout choice and has no effect in the
 game. See `scripts/build.py`.
 
 ## Icons from other projects
 
-- **The Hunting Horn note glyph** comes from mhgu-editor and is recoloured here. It appears to be
-  original artwork for that project.
 - **The camera-toggle book icons** come from mhgu-editor, as in the MHGU Weapon Trees page.
 
 ## UI assets

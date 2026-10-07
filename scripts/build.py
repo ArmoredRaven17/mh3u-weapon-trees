@@ -5,9 +5,8 @@ r"""Embed the weapon data and assets into docs/index.html.
 Both default to sibling folders of this repo. Nothing is read from the game here: every weapon, stat,
 recipe and upgrade link comes from the MH3U Collection Tracker's generated docs/data/ (which reads the
 game -- see that repo's scripts/build_data.py), along with its rarity icons, coating icons, monster
-icons, textures and font. The MHGU Weapon Trees page supplies the Hunting Horn note glyph (recoloured
-here to the tracker's 3U note colours), and the coating icons too when the tracker's data predates
-its own.
+icons, note icons, textures and font. The MHGU Weapon Trees page is only a fallback, for tracker data
+that predates the game's own coating and note icons: its coating icons and its note glyph.
 
 Only the block between the DATA:BEGIN / DATA:END markers in docs/index.html is rewritten, so the
 app's code stays hand-edited in place.
@@ -42,7 +41,9 @@ THEME_ICONS = {
     'Duramboros': 'Duramboros', 'Diablos': 'Diablos', 'Barroth': 'Barroth', 'Bullfango': 'Bullfango',
     'S. Rathalos': 'Silver Rathalos', 'Barioth': 'Barioth', 'Forbidden': 'Question Mark',
 }
-# Hunting Horn notes: the tracker's names and colours (styles.css .note-*), drawn with the MHGU app's glyph.
+# Hunting Horn notes in older tracker data: its names and by-eye colours (its old styles.css .note-*),
+# drawn with the MHGU app's glyph. Newer data carries the game's own note icons and colours instead.
+# (The names for codes 3-8 in that older data are wrong -- fitted to Kiranico, which permutes them.)
 NOTE_COLOURS = {'White': '#f2f2f2', 'Purple': '#a05ad0', 'Blue': '#4a7ff0', 'Red': '#e04848',
                 'Yellow': '#e8d23a', 'Orange': '#ef8f2e', 'Green': '#4caf50', 'Sky': '#7fd6f5'}
 # Older tracker data names coatings only; those take the MHGU app's coating icon (by colour), and Paint,
@@ -101,7 +102,10 @@ def extra(cls, st, S):
     if cls == 'switch_axe':
         return [S(re.sub(r'\s*Phial$', '', st['phial']))]
     if cls == 'hunting_horn':
-        return [[S(n) for n in st['notes']]]
+        # Newer tracker data: notes [label, icon, colour] and songs [[note indexes into those three], effect].
+        # Plain-string notes (no songs) are the older shape.
+        notes = [n[0] if isinstance(n, list) else n for n in st['notes']]
+        return [[S(n) for n in notes], [[seq, S(effect)] for seq, effect in st.get('songs', [])]]
     if cls == 'gunlance':
         return [S(st['shell'])]
     if cls == 'bow':
@@ -210,14 +214,26 @@ def main():
     else:
         coats = {'map': COATING_ICON, 'col': {k: gu['COATS']['col'][k] for k in set(COATING_ICON.values())}}
 
-    # The MHGU app's eighth-note glyph, filled with each 3U note colour. White keeps its outline.
-    white = base64.b64decode(gu['NOTE_ICONS']['White'].split(',', 1)[1]).decode()
+    # Note label -> {i: icon, c: colour}.
+    game_notes = {}
+    for st in json.load(open(os.path.join(TDOCS, 'data', 'stats', 'hunting_horn.json'), encoding='utf-8'))['byId'].values():
+        for n in st['notes']:
+            if isinstance(n, list):
+                game_notes[n[0]] = n
     notes = {}
-    for name, col in NOTE_COLOURS.items():
-        svg = white.replace('#F0F4F0', col).replace('White eighth note', name + ' eighth note')
-        if name != 'White':
-            svg = re.sub(r' stroke="#2A2A2A" stroke-width="[\d.]+"', '', svg)
-        notes[name] = 'data:image/svg+xml;base64,' + base64.b64encode(svg.encode()).decode()
+    if game_notes:
+        # The game's own note glyph per note, tinted by the HUD's own colour table (the tracker reads both).
+        for label, icon, col in game_notes.values():
+            notes[label] = {'c': col, 'i': data_uri(os.path.join(TDOCS, 'assets', 'notes', icon + '.png'), 'image/png')}
+    else:
+        # Older tracker data: the MHGU app's eighth-note glyph, filled with the tracker's old colours.
+        # White keeps its outline.
+        white = base64.b64decode(gu['NOTE_ICONS']['White'].split(',', 1)[1]).decode()
+        for name, col in NOTE_COLOURS.items():
+            svg = white.replace('#F0F4F0', col).replace('White eighth note', name + ' eighth note')
+            if name != 'White':
+                svg = re.sub(r' stroke="#2A2A2A" stroke-width="[\d.]+"', '', svg)
+            notes[name] = {'c': col, 'i': 'data:image/svg+xml;base64,' + base64.b64encode(svg.encode()).decode()}
 
     blobs = [('THEME_ASSETS', theme), ('MONSTER_ICONS', monsters), ('ICONS', icons), ('COATS', coats),
              ('NOTE_ICONS', notes), ('RARITY', cat['rarityColors']), ('WDATA', wdata)]

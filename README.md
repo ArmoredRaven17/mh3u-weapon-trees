@@ -6,7 +6,7 @@ view. It's a port of the author's [MHGU Weapon Trees](https://github.com/Armored
 
 Pick a class and a tree from the bottom bar, then click any weapon to see its full stats: attack,
 affinity, slots, element (bracketed when it needs Awaken), sharpness (base and Sharpness +1), Hunting
-Horn notes, Gunlance shelling, Switch Axe phials, bow charges, arc shot and coatings, and bowgun
+Horn notes and songs, Gunlance shelling, Switch Axe phials, bow charges, arc shot and coatings, and bowgun
 reload/recoil/deviation and ammo. It also shows the upgrade recipe, plus the forge recipe where the
 smithy has one. You can tick weapons as **Made**, highlight made or unmade ones, and snip branches out
 of the view. Snips and Made ticks are saved in your browser.
@@ -26,9 +26,9 @@ so it's gone. Rarity is per weapon, from 1 to 10, in the game's own name colours
 
 - **[mh3u-collection-tracker](https://github.com/ArmoredRaven17/mh3u-collection-tracker)** provides
   the weapon stats, recipes and upgrade links (`docs/data/`, which that repo reads from the game
-  itself), the rarity and coating icons, the monster theme icons, the textures and the font.
-- **[mhgu-weapon-trees](https://github.com/ArmoredRaven17/mhgu-weapon-trees)** provides the Hunting
-  Horn note glyph. The build recolours it to the tracker's 3U note colours.
+  itself), the rarity, coating and note icons, the monster theme icons, the textures and the font.
+- **[mhgu-weapon-trees](https://github.com/ArmoredRaven17/mhgu-weapon-trees)** is only a fallback: its
+  coating icons and note glyph are used if the tracker's data predates the game's own.
 
 ```
 python scripts/build.py
