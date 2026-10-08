@@ -292,6 +292,19 @@
   .chip.opt{border-color:var(--cyan-dim);color:var(--cyan)}
   .sect{margin:12px 0 5px;font-size:10.5px;letter-spacing:1.1px;text-transform:uppercase;
         color:var(--text-dim);opacity:.8;padding-top:5px;padding-bottom:4px}
+  /* Collapsible sections, as MHGU Weapon Trees has them. <details>/<summary>
+     rather than a div and a click handler: it toggles, takes focus and
+     announces its state on its own, and keeps working if the script that
+     remembers the state ever fails. */
+  details.sx > summary.sect{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;
+        user-select:none;margin-bottom:0}
+  details.sx > summary.sect::-webkit-details-marker{display:none}
+  details.sx > summary.sect::before{content:"";flex:0 0 auto;width:0;height:0;
+        border-left:4px solid currentColor;border-top:3.5px solid transparent;
+        border-bottom:3.5px solid transparent;transition:transform .12s ease;transform-origin:25% 50%}
+  details.sx[open] > summary.sect::before{transform:rotate(90deg)}
+  details.sx > summary.sect:hover{opacity:1}
+  details.sx > :last-child{margin-bottom:6px}
   table.stats{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
   table.stats td{padding:2px 0;font-size:13px}
   table.stats td:first-child{color:var(--muted)}
@@ -390,13 +403,6 @@
   #tree:hover,#wclass:hover,#viewSel:hover,#shapeSel:hover,#madeSel:hover{background:var(--film-hi)}
   #tree option,#wclass option,#viewSel option,#shapeSel option,#madeSel option{background:var(--bg2);color:var(--text)}
   #wclass option:disabled,#viewSel option:disabled,#shapeSel option:disabled{color:var(--muted)}
-  /* Stacked rather than one dot-separated line. Run across, it was wide
-     enough to reach under the bottom bar -- and the bar grew, since it now
-     wraps to two rows and spans nearly the full width on a narrow window.
-     A column is short enough to sit clear on a wide screen, and placeKey()
-     lifts it above the bar on the narrow ones where it still would not. */
-  #hint{position:fixed;bottom:16px;left:16px;font-size:11.5px;color:var(--muted);
-        opacity:.7;line-height:1.55;display:flex;flex-direction:column;align-items:flex-start}
   #key{right:16px;bottom:16px;left:auto;top:auto;padding:7px 9px}
   #key .klab{margin-bottom:4px}
   /* Vertical offset is set by placeKey() — the bar's height and width both
@@ -439,7 +445,7 @@
   <h2>How to use</h2>
   <p><strong>1. Pick a class.</strong> The bottom bar's first dropdown switches weapon class; the second jumps straight to one tree instead of drawing the whole class at once.</p>
   <p><strong>2. Pick a view.</strong> 2.5D is a tilted map you pan and zoom across (left-drag to pan, right-drag to tilt). 2D flattens that same layout with no tilt. 3D is a free orbit around one tree at a time in real 3D space (left-drag to pan, right-drag to orbit, wheel to zoom, click a node to re-center the orbit on it). The camera button names what a left-drag does right now, <strong>Pan</strong> or <strong>Orbit</strong>, and the right button always does the other. Click it, or middle-click the stage, to swap the two buttons over. The 2.5D bar carries the same control with <strong>Pan</strong> and <strong>Tilt</strong>, and middle-click swaps whichever pair the view you are in has.</p>
-  <p><strong>3. Click any node</strong> for its full stats — attack, affinity, slots, element (in brackets when it needs Awaken), and whatever the class carries beyond that: charge levels (with Load Up), arc shot and coatings for Bow, reload, recoil, deviation and ammo for the Bowguns, phials for Switch Axe, notes and songs for Hunting Horn, shelling for Gunlance, sharpness (base and Sharpness +1) for every Blademaster weapon — plus what it costs to upgrade into it, and to forge it outright where the smithy allows that.</p>
+  <p><strong>3. Click any node</strong> for its full stats — attack, affinity, slots, element (in brackets when it needs Awaken), and whatever the class carries beyond that: charge levels (with Load Up), arc shot and coatings for Bow, reload, recoil, deviation and ammo for the Bowguns, phials for Switch Axe, notes and songs for Hunting Horn, shot level for Gunlance, sharpness (base and Sharpness +1) for every Blademaster weapon — plus what it costs to upgrade into it, and to forge it outright where the smithy allows that.</p>
   <p><strong>Snip</strong> &mdash; with a weapon selected, a small circle sits on each edge leading into and out of it. Click one to hide that branch and everything above it. The weapon below a cut gets a dashed ring; double-click it to restore that cut (or select it and press <strong>Restore</strong>), or use <strong>Restore all</strong> in the browsing panel.</p>
   <p><strong>Center On Node</strong> brings the weapon you have selected back to the middle; <strong>Center On Tree</strong> goes back out to the middle of the tree as a whole, which is where the view sat before you clicked anything. Neither changes how far in you are zoomed, and neither drops your selection. In 2.5D, the camera button reads <strong>Pan</strong> or <strong>Tilt</strong> for what a left-drag does right now, and the right button always does the other; <strong>Default tilt</strong> snaps back to the starting tilt.</p>
   <p class="muted">Each upgrade in MH3U is a weapon of its own, so every node is one weapon. A run of upgrades is drawn as one straight lane: the first upgrade the game lists for a weapon carries its lane on, and any others branch off to the side.</p>
@@ -558,7 +564,6 @@
   <div class="ramp" id="ramp"></div>
 </div>
 
-<div id="hint"></div>   <!-- filled by paintHint(); what a drag does varies -->
 
 <div id="start" class="hidden"><div class="box">
   <h2>Start a run</h2>
@@ -1513,11 +1518,12 @@ function resize() {
 // The rarity key sits in the bottom-right corner, but the bar is centred and
 // grows with its dropdowns. Rather than guess a breakpoint, measure: if the two
 // would overlap horizontally, lift the key clear of the bar.
-/* The rarity key and the hint both sit in the bottom corners, which is where
-   the bar reaches once it wraps. One rule covers both: measure, and only lift
-   if the bar genuinely overlaps. Testing rather than assuming matters because
-   the bar's width varies with the view -- 3D drops two buttons and adds one --
-   so a fixed breakpoint would lift these on layouts that had room. */
+/* The rarity key sits in a bottom corner, which is where the bar reaches once
+   it wraps. Measure, and only lift if the bar genuinely overlaps: the bar's
+   width varies with the view -- 3D drops two buttons and adds one -- so a fixed
+   breakpoint would lift it on layouts that had room.
+   Takes a list of obstacles because it used to clear the hint as well as the
+   bar; one is all that is left. */
 function liftClear(el, obstacles) {
   el.style.bottom = "16px";
   for (const o of obstacles) {
@@ -1530,14 +1536,7 @@ function liftClear(el, obstacles) {
   }
 }
 function placeKey() {
-  const bar = document.getElementById("bar"), key = document.getElementById("key");
-  liftClear(key, [bar]);
-  /* The hint clears the bar and THEN the key, in that order and re-measured
-     between the two. On a narrow window the key has just been lifted into the
-     same band the hint is heading for, so clearing one obstacle can move it
-     straight onto another -- checking both against the original position would
-     miss it. */
-  liftClear(document.getElementById("hint"), [bar, key]);
+  liftClear(document.getElementById("key"), [document.getElementById("bar")]);
 }
 addEventListener("resize", () => { resize(); placeKey(); mark(); }); resize();
 
@@ -1668,6 +1667,19 @@ const FILTER_DIM = .16, FILTER_DIM_LIT = .5;
 // silently faded out of the picture.
 const filterHit = n => !madeFilter || !n ||
   (madeFilter === "made" ? isMade(n) : !isMade(n));
+
+/* Which sections the reader has opened or shut, by section. Only their own
+   choices are stored; everything starts shut, so the pane opens as a short
+   list of titles whatever the class (as MHGU Weapon Trees does it). The
+   open state is written into the markup as it is built and never set as a
+   property afterwards: that fires a toggle event, which the handler could not
+   tell apart from a real click. */
+const SECT_KEY = "mh3u-trees-sections";
+let sectShut = {};
+try { sectShut = JSON.parse(localStorage.getItem(SECT_KEY) || "{}") || {}; } catch (e) {}
+// Stored by section, not by title: "Upgrade from Iron Sword" names the weapon
+// below, and a preference for that section should hold on every weapon.
+const sectKey = title => title.replace(/ from .*$/, "");
 
 const MADE_KEY = "mh3u-trees-made";
 let made = new Set();
@@ -2826,7 +2838,6 @@ function applyViewMode() {
   if (!is2d) flatTip.style.display = "none";
   updateWholeClassOption();
   fitActive(activeRoot);
-  paintHint();
   mark(); paint(); placeKey();
 }
 viewSel.onchange = () => { viewMode = viewSel.value; applyViewMode(); };
@@ -2952,27 +2963,9 @@ function paintAngleLock() {
 function toggleAngleLock() {
   angleLocked = !angleLocked;
   paintAngleLock();
-  paintHint();
   placeKey();
 }
-/* Dragging now does one of three things depending on the view and its lock, so
-   the hint has to say which — a fixed "drag to pan" was already wrong in 3D
-   (it orbits) and would contradict the Orbit button outright. */
-function paintHint() {
-  // 3D names both buttons, since each now does one of the two things.
-  const lines = viewMode === "3d"
-    ? [`drag to ${orbitLocked ? "pan" : "orbit"}`, `right-drag to ${orbitLocked ? "orbit" : "pan"}`]
-    : viewMode === "2d" ? ["drag to pan"]
-    : [`drag to ${angleLocked ? "pan" : "tilt"}`, `right-drag to ${angleLocked ? "tilt" : "pan"}`];
-  document.getElementById("hint").innerHTML =
-    [...lines, "wheel to zoom", "click any node to inspect it"]
-      .map(t => `<span>${t}</span>`).join("\n");   // newline, not "": a flex container drops whitespace-only
-  // text nodes so the layout is untouched, but without it textContent runs the
-  // three lines together -- what a screen reader says and what a copy yields.
-  // Its width changes with the verb, and whether it clears the bar depends on
-  // that width, so the two have to be worked out together.
-  placeKey();
-}
+
 angleLockBtn.onclick = toggleAngleLock;
 paintAngleLock();
 
@@ -2984,8 +2977,8 @@ const orbitLockIcon = document.getElementById("orbitLockIcon");
 // The button names the mode that is ACTIVE -- "Orbit" while a drag rotates,
 // "Pan" once it doesn't -- rather than naming the thing being locked. Reading
 // the control then tells you what dragging will do right now, which is the
-// question you actually have, and it agrees with the hint underneath instead
-// of inverting it. Same control, same wording, as the Armor Viewer's camera bar.
+// question you actually have. Same control, same wording, as the Armor
+// Viewer's camera bar.
 const orbitLockText = document.getElementById("orbitLockText");
 // Pinned together, and only once both buttons exist.
 function pinToggleWidths() {
@@ -2997,7 +2990,7 @@ function paintOrbitLock() {
   orbitLockText.textContent = orbitLocked ? "Pan" : "Orbit";
   orbitLockBtn.classList.toggle("on", !orbitLocked);
 }
-function toggleOrbitLock() { orbitLocked = !orbitLocked; paintOrbitLock(); paintHint(); placeKey(); }
+function toggleOrbitLock() { orbitLocked = !orbitLocked; paintOrbitLock(); placeKey(); }
 orbitLockBtn.onclick = toggleOrbitLock;
 paintOrbitLock();
 pinToggleWidths();
@@ -3015,7 +3008,7 @@ if (document.fonts) document.fonts.load("1em MHFU").then(() => {
   selects.forEach(s => getComputedStyle(s).fontFamily);
   selects.forEach(s => { s.style.fontFamily = ""; });
 }, () => {});
-paintHint();
+placeKey();
 document.getElementById("angleReset").onclick = () => setPitch(TILT);
 
 /* ---------------- panels ---------------- */
@@ -3197,7 +3190,9 @@ function renderDetail() {
     const ph = phialParts(n.phial);
     rows.push(["Phial", tint(PAL.phial[ph.type] || "", ph.type) + (ph.value ? ` ${ph.value}` : ""), ""]);
   }
-  if (n.shell) rows.push(["Shelling", tint(shellCol(n.shell), n.shell), ""]);
+  // "Shot Lv" is the game's own label for it (Menu 449). The colour rule keeps
+  // MHFU's shelling name, shellCol.
+  if (n.shell) rows.push(["Shot Lv", tint(shellCol(n.shell), n.shell), ""]);
   if (n.reload) {
     rows.push(["Reload", tint(scaleCol(RELOAD_SCALE, n.reload), n.reload), ""],
               ["Recoil", tint(scaleCol(RECOIL_SCALE, n.recoil), n.recoil), ""],
@@ -3264,7 +3259,20 @@ function renderDetail() {
 
   if (c && options(c).includes(n.key))
     h += `<button id="go">Upgrade to ${n.name}</button>`;
-  box.innerHTML = h;
+  /* Each `<div class="sect">Title</div>` and everything up to the next one
+     becomes one collapsible block. Done here, over the finished string, rather
+     than at every place that emits a section, so a section added later
+     collapses too. */
+  box.innerHTML = h.replace(
+    /<div class="sect">([^<]*)<\/div>([\s\S]*?)(?=<div class="sect">|$)/g,
+    (_, title, body) => `<details class="sx" data-s="${escAttr(sectKey(title))}"${
+      sectShut[sectKey(title)] === false ? " open" : ""}>` +
+      `<summary class="sect">${title}</summary>${body}</details>`);
+  // `toggle` doesn't bubble, so these are wired per element. There are few.
+  for (const d of box.querySelectorAll("details.sx")) d.ontoggle = () => {
+    sectShut[d.dataset.s] = !d.open;
+    try { localStorage.setItem(SECT_KEY, JSON.stringify(sectShut)); } catch (e) {}
+  };
   const chk = document.getElementById("madeChk");
   if (chk) chk.onchange = () => setMade(n, chk.checked);
   const uh = document.getElementById("unsnipHere");
