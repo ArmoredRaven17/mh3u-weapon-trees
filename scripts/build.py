@@ -142,6 +142,8 @@ def build_class(cls, cat):
     # only one integer floors to a given display, the smallest one at or above display / multiplier.
     # Checked against the records themselves (record +0xa melee / +4 gunner; element +0xf/+0x11/+0x13,
     # bow +0x15) for every weapon: 1,395 attacks and 1,132 element and status values, no mismatch.
+    # Newer tracker data carries both true values itself (stats `raw`, and a 4th `ele` field); then
+    # the derivation is kept as a cross-check, and it is the fallback for older data.
     mult100 = round(cat['mult'] * 100)
     true_raw = lambda shown: -(-100 * shown // mult100)
 
@@ -149,13 +151,19 @@ def build_class(cls, cat):
         st = stats[str(i)]
         rec = mats['create'].get(str(i), {})
         sharp = st.get('sh') if cls not in GUNNER else None
-        return [i, names[i], st['atk'], st['aff'], st['def'], st['slots'],
-                [[e[0], e[1], e[2], e[1] // 10] for e in st.get('ele', [])],
+        raw = st.get('raw', true_raw(st['atk']))
+        assert raw == true_raw(st['atk']), (cls, i, st['atk'], raw)
+        ele = []
+        for e in st.get('ele', []):
+            t = e[3] if len(e) > 3 else e[1] // 10
+            assert t * 10 == e[1], (cls, i, e)
+            ele.append([e[0], e[1], e[2], t])
+        return [i, names[i], st['atk'], st['aff'], st['def'], st['slots'], ele,
                 extra(cls, st, S),
                 rec['f'][2] if 'f' in rec else None,
                 sharp, st['rar'],
                 rec.get('d'),
-                true_raw(st['atk'])]
+                raw]
 
     # Lines, depth first in the tracker's tree order so related lines sit together.
     trees = []
@@ -245,7 +253,10 @@ def main():
             notes[name] = {'c': col, 'i': 'data:image/svg+xml;base64,' + base64.b64encode(svg.encode()).decode()}
 
     blobs = [('THEME_ASSETS', theme), ('MONSTER_ICONS', monsters), ('ICONS', icons), ('COATS', coats),
-             ('NOTE_ICONS', notes), ('RARITY', cat['rarityColors']), ('WDATA', wdata)]
+             ('NOTE_ICONS', notes), ('RARITY', cat['rarityColors']),
+             # The game's own colour per element / status (its ammo or coating item's colour), from
+             # newer tracker data; the page keeps its own palette for anything this leaves out.
+             ('ELE_COLOURS', cat['labels'].get('eleColours', {})), ('WDATA', wdata)]
     block = ''.join('<script>window.%s=%s;</script>' % (k, json.dumps(v, ensure_ascii=False, separators=(',', ':')))
                     for k, v in blobs)
 
