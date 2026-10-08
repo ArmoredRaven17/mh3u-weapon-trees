@@ -102,6 +102,13 @@
   #nodes{position:absolute;inset:0;pointer-events:none}
   /* Snip controls: a plain circle for now, sitting on the edge itself halfway
      between the two weapons it would separate. */
+  #lnames{position:absolute;inset:0;pointer-events:none}
+  /* A lane's name, written along the branch that starts it. A scrim rather than
+     a text-shadow alone, since it sits over the map with nothing behind it. */
+  .lname{position:absolute;white-space:nowrap;font-weight:600;letter-spacing:.2px;
+         background:rgba(0,0,0,.55);border-radius:4px;padding:0 5px;
+         text-shadow:0 1px 2px #000;transform-origin:50% 50%}
+  .lname.hidden{display:none}
   #snips{position:absolute;inset:0;pointer-events:none}
   #snips .snip{position:absolute;z-index:100000;pointer-events:auto;cursor:pointer;
         width:14px;height:14px;padding:0;margin:0;border-radius:50%;
@@ -161,21 +168,6 @@
   .prunebox{display:flex;align-items:center;justify-content:space-between;gap:8px;
             margin:8px 0 2px;font-size:12.5px;color:var(--text-dim)}
   .prunebox button{padding:4px 10px;font-size:12px}
-  /* Node labels sit on the map itself, so there's no controlled background
-     behind them — a scrim guarantees contrast the way .swatch span does in the
-     randomizer, instead of relying on a text-shadow to fight whatever is under
-     it. Inline-block so it hugs the text rather than boxing the whole column. */
-  .node .lbl,.node .sub{
-    display:inline-block; background:rgba(0,0,0,.55);
-    border-radius:4px; padding:0 5px;
-  }
-  .node .lbl{
-    margin-top:9px; white-space:nowrap; font-weight:600; letter-spacing:.2px;
-    text-shadow:0 1px 2px #000;
-  }
-  .node .sub{font-size:.78em;color:var(--muted);font-variant-numeric:tabular-nums;
-             margin-top:2px}
-  .node .lbl:empty,.node .sub:empty{display:none}
 
   /* The icon carries rarity; the frame around it carries where you are. */
   .node.past .dot{border-color:rgba(240,194,100,.4);background:rgba(240,194,100,.07)}
@@ -231,8 +223,6 @@
                        paint-order:stroke;stroke:#000;stroke-width:6px}
   #flat .lb{font-size:25px;font-weight:600;paint-order:stroke;stroke:#000;
             stroke-width:3px;stroke-linejoin:round}
-  #flat .lv{font-size:19px;fill:var(--muted);paint-order:stroke;stroke:#000;stroke-width:4px;
-            font-variant-numeric:tabular-nums}
   #flat .hit{fill:transparent;stroke:transparent;stroke-width:1;cursor:pointer}
   #flat .nd:hover .hit{fill:var(--film);stroke:#c8bfa8}
   /* Stroke and width are set per node in paint2d — white for the selection,
@@ -448,7 +438,7 @@
   <p><strong>3. Click any node</strong> for its full stats — attack, affinity, slots, element (in brackets when it needs Awaken), and whatever the class carries beyond that: charge levels (with Load Up), arc shot and coatings for Bow, reload, recoil, deviation and ammo for the Bowguns, phials for Switch Axe, notes and songs for Hunting Horn, shot level for Gunlance, sharpness (base and Sharpness +1) for every Blademaster weapon — plus what it costs to upgrade into it, and to forge it outright where the smithy allows that.</p>
   <p><strong>Snip</strong> &mdash; with a weapon selected, a small circle sits on each edge leading into and out of it. Click one to hide that branch and everything above it. The weapon below a cut gets a dashed ring; double-click it to restore that cut (or select it and press <strong>Restore</strong>), or use <strong>Restore all</strong> in the browsing panel.</p>
   <p><strong>Center On Node</strong> brings the weapon you have selected back to the middle; <strong>Center On Tree</strong> goes back out to the middle of the tree as a whole, which is where the view sat before you clicked anything. Neither changes how far in you are zoomed, and neither drops your selection. In 2.5D, the camera button reads <strong>Pan</strong> or <strong>Tilt</strong> for what a left-drag does right now, and the right button always does the other; <strong>Default tilt</strong> snaps back to the starting tilt.</p>
-  <p class="muted">Each upgrade in MH3U is a weapon of its own, so every node is one weapon. A run of upgrades is drawn as one straight lane: the first upgrade the game lists for a weapon carries its lane on, and any others branch off to the side.</p>
+  <p class="muted">Each upgrade in MH3U is a weapon of its own, so every node is one weapon. A run of upgrades is drawn as one straight lane: the first upgrade the game lists for a weapon carries its lane on, and any others branch off to the side. On the map and in 3D each lane is named once, after its first weapon, on the branch where it starts; click any weapon for its own name, or switch to 2D, which names every weapon.</p>
   <button id="helpClose">Close</button>
 </div></div>
 
@@ -509,6 +499,7 @@
 <div id="stage">
   <svg id="edges"></svg>
   <div id="nodes"></div>
+  <div id="lnames"></div>
   <div id="snips"></div>
   <!-- 2D lives entirely outside the camera renderer above: one SVG drawn once
        per tree, moved around with a CSS transform. -->
@@ -1633,9 +1624,6 @@ function lineage(key) {
 const litRgb = n => lighten(hexRgb(rarCol(n)), .45);
 const litCol = n => cssRgb(litRgb(n));
 const rarName = r => String(r);
-// The line under a node's name. MHGU showed the level here; 3U has none, so it
-// carries rarity instead, which the icon's colour only says to those who read it.
-const subLabel = n => `R${rarName(rarOf(n))} · ${n.raw}`;
 
 const RANK = { away: 0, ghost: 1, far: 2, past: 3, next: 4, cur: 5 };
 /* ---------------- made tracker ----------------
@@ -1808,6 +1796,76 @@ function classOf(n) {
 let dirty = true;
 const mark = () => { dirty = true; };
 
+/* ---------------- line names ----------------
+   One name per LANE, written along the branch that starts it, instead of one
+   under every weapon -- as MHGU Weapon Trees does it. On the map a lane's
+   neighbours sit a few dozen pixels apart while a name is 70 to 110 wide, so
+   names written ACROSS the lanes fought for room that isn't there; written
+   ALONG the branch, they use the length.
+
+   This costs more in 3U than in MHGU. There a line's levels are forms of one
+   weapon, so its first name stands for the rest. Here every weapon on a lane is
+   its own, and only the first is named on the map -- the rest are named in the
+   detail pane, the upgrade list and the 2D view, which still labels every
+   weapon. Raven's call (2026-10-07), knowing that. */
+const lnameLayer = document.getElementById("lnames");
+const lnamePool = [];
+/* The weapon a lane STARTS with. Taken from the whole lane rather than from the
+   part on screen: zoom in past the start and the lowest visible weapon is a
+   later one, so the lane would appear to rename itself as you moved. Cached
+   per class, since it only changes when N does. */
+let _lineBase = null, _lineBaseFor = null;
+function lineBase(t) {
+  if (_lineBaseFor !== CLASS) {
+    _lineBase = new Map();
+    for (const n of N.values()) {
+      const cur = _lineBase.get(n.t);
+      if (!cur || n.lv < cur.lv) _lineBase.set(n.t, n);
+    }
+    _lineBaseFor = CLASS;
+  }
+  return _lineBase.get(t);
+}
+/* `anchorOf` hands back the two screen points to write between, which differ by
+   view: see the callers. */
+function drawLineNames(vis, scaleOf, anchorOf) {
+  const seen = new Set();
+  let i = 0;
+  for (const v of vis) {
+    if (seen.has(v.n.t)) continue;
+    seen.add(v.n.t);
+    const base = lineBase(v.n.t);
+    if (!base) continue;
+    const seg = anchorOf(base);
+    if (!seg) continue;
+    const [a, b] = seg;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    while (lnamePool.length <= i) {
+      const el = document.createElement("div");
+      el.className = "lname";
+      lnameLayer.appendChild(el);
+      lnamePool.push(el);
+    }
+    const el = lnamePool[i++];
+    el.className = "lname";
+    el.textContent = base.name;
+    const sc = scaleOf(a.zv !== undefined ? a : b);
+    el.style.fontSize = (25 * sc).toFixed(1) + "px";
+    /* Along the segment, flipped end for end past a quarter turn so it never
+       reads upside down. Too short on screen to write along and it stays
+       horizontal rather than being stood on end. */
+    let deg = len > 40 ? Math.atan2(dy, dx) * 180 / Math.PI : 0;
+    if (deg > 90) deg -= 180;
+    else if (deg < -90) deg += 180;
+    el.style.left = (a.x + dx / 2) + "px";
+    el.style.top = (a.y + dy / 2) + "px";
+    el.style.transform = `translate(-50%,-50%) rotate(${deg.toFixed(1)}deg)`;
+    el.style.color = rarCol(base);
+  }
+  for (let k = i; k < lnamePool.length; k++) lnamePool[k].className = "lname hidden";
+}
+
 function draw() {
   if (viewMode === "3d") { draw3d(); requestAnimationFrame(draw); return; }
   // 2D is static — the picture is already on screen and only moves when the
@@ -1917,11 +1975,9 @@ function draw() {
   while (pool.length < vis.length) {
     const el = document.createElement("div");
     el.className = "node";
-    // The tick goes INSIDE .dot, after the img, so el.children keeps its
-    // shape (0 = dot, 1 = label, 2 = sub) and dotEl.firstChild is still the img
-    // -- both are indexed by position elsewhere in this file.
-    el.innerHTML = '<div class="dot"><img alt=""><b class="tick">&#10003;</b></div>' +
-      '<div class="lbl"></div><div class="sub"></div>';
+    // The tick goes INSIDE .dot, after the img, so dotEl.firstChild is still
+    // the img -- it is indexed by position elsewhere in this file.
+    el.innerHTML = '<div class="dot"><img alt=""><b class="tick">&#10003;</b></div>';
     el.addEventListener("click", ev => {
       ev.stopPropagation();
       // The second click of a double-click is part of the FIRST click's gesture.
@@ -1997,14 +2053,26 @@ function draw() {
       el.children[0].firstChild.src = (ICONS[CLASS] || {})[r] || "";
       el._rar = r; el._cls = CLASS;
     }
-    // Every node is its own weapon in 3U, so every node is named. The only
-    // cut-off is legibility: below this scale the text would be a few pixels tall.
-    const show = sc > .3;
-    const lbl = el.children[1], sub = el.children[2];
-    lbl.textContent = show ? v.n.name : "";
-    lbl.style.fontSize = (v.cls === "cur" ? 29 : 25) + "px";
-    sub.textContent = show ? subLabel(v.n) : "";
   });
+  /* The name goes on the FIRST leg of the branch's bend -- the step across at
+     the parent's own level, where the lane departs -- not the climb that
+     follows. That leg runs between lanes, which is empty, while the climb runs
+     up a lane past the weapons themselves. route() turns the same corner. */
+  drawLineNames(vis,
+    p => viewMode === "2d" ? Math.max(.4, Math.min(1.4, zoom2d))
+       : Math.max(.4, Math.min(1.2, p.zv ? DIST / p.zv : 1)),
+    base => {
+      const par = base.parent && N.get(base.parent);
+      if (par && Math.abs(par.x - base.x) > 1) {
+        const a = proj(par), c = project(base.x, par.u);
+        if (a && c) return [a, c];
+      }
+      // A root, or a lane that continues straight up: write it along its own
+      // first step instead.
+      const a = proj(base), kid = base.kids.map(k => N.get(k)).find(k => k && k.t === base.t);
+      const b = kid && proj(kid);
+      return a && b ? [a, b] : a ? [a, a] : null;
+    });
   for (let i = vis.length; i < pool.length; i++) pool[i].className = "node hidden";
   requestAnimationFrame(draw);
 }
@@ -2134,11 +2202,9 @@ function draw3d() {
   while (pool.length < vis.length) {
     const el = document.createElement("div");
     el.className = "node";
-    // The tick goes INSIDE .dot, after the img, so el.children keeps its
-    // shape (0 = dot, 1 = label, 2 = sub) and dotEl.firstChild is still the img
-    // -- both are indexed by position elsewhere in this file.
-    el.innerHTML = '<div class="dot"><img alt=""><b class="tick">&#10003;</b></div>' +
-      '<div class="lbl"></div><div class="sub"></div>';
+    // The tick goes INSIDE .dot, after the img, so dotEl.firstChild is still
+    // the img -- it is indexed by position elsewhere in this file.
+    el.innerHTML = '<div class="dot"><img alt=""><b class="tick">&#10003;</b></div>';
     el.addEventListener("click", ev => {
       ev.stopPropagation();
       // The second click of a double-click is part of the FIRST click's gesture.
@@ -2209,12 +2275,20 @@ function draw3d() {
       el.children[0].firstChild.src = (ICONS[CLASS] || {})[r] || "";
       el._rar = r; el._cls = CLASS;
     }
-    const show = sc > .32;
-    const lbl = el.children[1], sub = el.children[2];
-    lbl.textContent = show ? v.n.name : "";
-    lbl.style.fontSize = (v.cls === "cur" ? 29 : 25) + "px";
-    sub.textContent = show ? subLabel(v.n) : "";
   });
+  // 3D has no corner to turn: the branch is the hop from the parent weapon to
+  // the lane's first, so the name is written along that.
+  drawLineNames(vis, p => Math.max(.35, Math.min(1.3, DIST / p.zv)),
+    base => {
+      const par = base.parent && N.get(base.parent);
+      const a = proj3(base);
+      if (!a) return null;
+      const b = par && proj3(par);
+      if (b) return [b, a];
+      const kid = base.kids.map(k => N.get(k)).find(k => k && k.t === base.t);
+      const c = kid && proj3(kid);
+      return c ? [a, c] : [a, a];
+    });
   for (let i = vis.length; i < pool.length; i++) pool[i].className = "node hidden";
 }
 
@@ -2246,7 +2320,7 @@ const FZ_MIN = .04, FZ_MAX = 2.4;
 // the name is drawn to the RIGHT of the icon, so a lane has to clear its own
 // icon, its text, and a gutter before the next lane's icon begins.
 const LBL_X = 56, ICON_HALF = 44, GUTTER = 26;
-// Widest label in a set, measured in the font it will actually be drawn in
+// Widest weapon name in a set, measured in the font it will actually be drawn in
 // rather than guessed from character counts — "Type 41 Wyvernator" and
 // "Despot's Blackstorm" are far wider than a per-character estimate suggests.
 function widestLabel(nodes) {
@@ -2255,8 +2329,6 @@ function widestLabel(nodes) {
   let w = 0;
   c.font = '600 25px "MHFU","Segoe UI",system-ui,sans-serif';
   for (const n of nodes) w = Math.max(w, c.measureText(n.name).width);
-  c.font = '19px "MHFU","Segoe UI",system-ui,sans-serif';
-  for (const n of nodes) w = Math.max(w, c.measureText(subLabel(n)).width);
   return w;
 }
 // Tightest horizontal gap between two nodes sharing a row, in layout units.
@@ -2319,7 +2391,6 @@ function build2d() {
     `<rect class="hit" x="-48" y="-48" width="96" height="96" rx="22"/>` +
     `<use href="#fi${rarOf(n)}" x="-44" y="-44"/>` +
     `<text class="lb" x="56" y="-4" fill="${rarCol(n)}">${escAttr(n.name)}</text>` +
-    `<text class="lv" x="56" y="20">${escAttr(subLabel(n))}</text>` +
     `<text class="tick" x="24" y="-20">&#10003;</text>` +
     `<circle class="cutmark" cx="-40" cy="40" r="13"/></g>`).join("");
 
@@ -2835,6 +2906,7 @@ function applyViewMode() {
   svg.style.display = is2d ? "none" : "";
   layer.style.display = is2d ? "none" : "";
   snipLayer.style.display = is2d ? "none" : "";
+  lnameLayer.style.display = is2d ? "none" : "";
   if (!is2d) flatTip.style.display = "none";
   updateWholeClassOption();
   fitActive(activeRoot);

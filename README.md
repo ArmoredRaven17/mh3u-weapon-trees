@@ -16,7 +16,8 @@ of the view. Snips and Made ticks are saved in your browser.
 MH3U has no weapon levels. Every upgrade is a separate weapon, so every node is one weapon, keyed by
 the game's own weapon id. Each run of upgrades is drawn as one straight lane: the first upgrade the
 game lists for a weapon carries its lane on, and any others branch off to the side. Lanes only
-affect the layout. MHGU's "a branch stays open past the level it unlocks" rule doesn't exist in 3U,
+affect the layout. As in the MHGU app, the 2.5D and 3D views name each lane once, after its first
+weapon, on the branch where it starts. 2D still names every weapon. MHGU's "a branch stays open past the level it unlocks" rule doesn't exist in 3U,
 so it's gone. Rarity is per weapon, from 1 to 10, in the game's own name colours.
 
 ## Where the data comes from
