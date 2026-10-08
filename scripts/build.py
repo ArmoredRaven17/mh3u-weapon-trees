@@ -136,17 +136,26 @@ def build_class(cls, cat):
     names = {e[0]: e[1] for e in cat['entries']}
     tree_order = {e[0]: e[4] for e in cat['entries']}
     kids = {i: [c for c in stats[str(i)]['children'] if c in names] for i in names}
+    # The tracker gives what the game DISPLAYS. The weapon record stores the true values, and the
+    # status screen shows attack as true * the class multiplier (u32 at 0xba2bf8 / 100, floored; READ
+    # 0x57bf40) and element / status as true * 10. Both invert exactly: with a multiplier of at least 1
+    # only one integer floors to a given display, the smallest one at or above display / multiplier.
+    # Checked against the records themselves (record +0xa melee / +4 gunner; element +0xf/+0x11/+0x13,
+    # bow +0x15) for every weapon: 1,395 attacks and 1,132 element and status values, no mismatch.
+    mult100 = round(cat['mult'] * 100)
+    true_raw = lambda shown: -(-100 * shown // mult100)
 
     def level(i):
         st = stats[str(i)]
         rec = mats['create'].get(str(i), {})
         sharp = st.get('sh') if cls not in GUNNER else None
         return [i, names[i], st['atk'], st['aff'], st['def'], st['slots'],
-                [[e[0], e[1], e[2]] for e in st.get('ele', [])],
+                [[e[0], e[1], e[2], e[1] // 10] for e in st.get('ele', [])],
                 extra(cls, st, S),
                 rec['f'][2] if 'f' in rec else None,
                 sharp, st['rar'],
-                rec.get('d')]
+                rec.get('d'),
+                true_raw(st['atk'])]
 
     # Lines, depth first in the tracker's tree order so related lines sit together.
     trees = []

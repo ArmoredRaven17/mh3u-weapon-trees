@@ -1,7 +1,7 @@
 # MH3U Weapon Trees
 
 An interactive, in-browser map of every weapon upgrade tree in **Monster Hunter 3 Ultimate**: all
-12 weapon classes (1,415 weapons) drawn as a tilted 2.5D map, a flat 2D diagram, or a free-orbit 3D
+12 weapon classes (1,395 weapons) drawn as a tilted 2.5D map, a flat 2D diagram, or a free-orbit 3D
 view. It's a port of the author's [MHGU Weapon Trees](https://github.com/ArmoredRaven17/mhgu-weapon-trees).
 
 Pick a class and a tree from the bottom bar, then click any weapon to see its full stats: attack,
