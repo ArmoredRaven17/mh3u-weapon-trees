@@ -150,6 +150,11 @@
     letter-spacing:.2px; text-shadow:0 1px 2px #000;
   }
   .node .lbl:empty{display:none}
+  /* 2.5D's path names get room inside their scrim, top and bottom as well as the
+     sides, so a name doesn't sit flush against the edge of its box (Raven,
+     2026-10-08). v25 is set only by draw(), the 2.5D path; draw3d() rewrites the
+     class list without it, so 3D keeps the tight box. */
+  .node.v25 .lbl{padding:4px 12px;border-radius:6px}
   .node .tick{
     position:absolute; right:-7px; top:-7px; display:none;
     width:30px; height:30px; border-radius:50%;
@@ -843,9 +848,16 @@ const GAP_PER_PX = 3.7;        // ~650 for the median name, i.e. XGAP
    This is the branch's OFFSET from its parent, which is not the same as the gap
    above: that one is clearance between whole subtrees, and a branch can end up
    closer to its parent than the clearance between the subtrees either side. */
-const LABEL_ROOM_MARGIN = 1.18;
+/* Room for the parent's icon as well. The step across starts at the weapon it
+   branches off, and that weapon's icon covers the first ICON_HALF of it (icon
+   and name are both drawn at DIST/zv through the middle of the zoom range), so
+   a leg sized to the name alone left the name jammed against the icon. NAME_GAP
+   is the clear space either side of the name: off the icon at the near end, off
+   the bend at the far end (Raven, 2026-10-08: "too cramped"). */
+const LABEL_ROOM_MARGIN = 1.05;
+const NAME_GAP = 30;           // px at LBL_PX (half the name's height), so it scales with the name
 function labelRoom(n) {
-  return lblWidth(n.name) * (DIST / FOV) * LABEL_ROOM_MARGIN;
+  return (lblWidth(n.name) + ICON_HALF + 2 * NAME_GAP) * (DIST / FOV) * LABEL_ROOM_MARGIN;
 }
 const _gapCache = new Map();
 function branchGap(n) {
@@ -1551,14 +1563,31 @@ function lblWidth(name) {
   }
   return w;
 }
-/* A circle sits a little to the SIDE of its edge rather than squarely on it:
-   the lane's name is written along the middle of that edge, and a circle on top
-   of the text clips it. Perpendicular to the edge, so it stays beside the line
-   it belongs to whichever way the line runs. */
-const SNIP_OFFSET = 14;
-function pushSnip(list, v, pp, mx, my) {
-  const dx = v.p.x - pp.x, dy = v.p.y - pp.y, L = Math.hypot(dx, dy) || 1;
-  list.push({ k: v.n.key, x: mx - dy / L * SNIP_OFFSET, y: my + dx / L * SNIP_OFFSET });
+/* A circle sits ON its edge, halfway along it (Raven, 2026-10-08: they had
+   drifted off their lines; they used to be pushed 14px to the side). In 2.5D
+   there is one per branch, centred UNDER the branch's name -- see underName and
+   draw(); 3D keeps one on each edge around the pinned weapon (wantsSnip). */
+function pushSnip(list, v, mx, my, under) {
+  list.push({ k: v.n.key, x: mx, y: my, under });
+}
+/* Where each lane name was put this frame, keyed by the weapon the lane starts
+   with: its centre, its angle, and half its box's height. Filled by
+   drawLineNames, read by underName. */
+const lnameAt = new Map();
+let lnameLH = 0;               // a name's box height over its font size, measured once
+const SNIP_R = 9;              // the circle's radius: 14px plus a 2px border each side
+/* Moves a branch's circle to just below the branch's name, centred on it.
+   "Below" in the name's own frame, so it follows the name if the leg it is
+   written on tilts. A circle whose name was not written along a step keeps its
+   place on the line. */
+function underName(list) {
+  for (const at of list) {
+    const L = at.under && lnameAt.get(at.under);
+    if (!L) continue;
+    const r = L.deg * Math.PI / 180, off = L.hh + SNIP_R + 4;
+    at.x = L.x - Math.sin(r) * off;
+    at.y = L.y + Math.cos(r) * off;
+  }
 }
 // Pooled like the nodes are, since they are repositioned every frame the camera moves.
 function placeSnips(list) {
@@ -1856,7 +1885,8 @@ function polyMid(pts) {
 }
 // A quadratic's midpoint is at t = .5 on the curve, not at its control point.
 const qMid = (a, c, b) => [.25 * a.x + .5 * c.x + .25 * b.x, .25 * a.y + .5 * c.y + .25 * b.y];
-/* Circles only on the edges touching the PINNED weapon -- the one leading in
+/* 3D only (2.5D puts one under every branch's name -- see draw()).
+   Circles only on the edges touching the PINNED weapon -- the one leading in
    and each one leading out. Every edge at once would bury a big class under
    hundreds of them. And following hover rather than the pinned selection would
    make them vanish the moment the pointer left the weapon on its way to one. */
@@ -1932,6 +1962,7 @@ function lineBase(t) {
 function drawLineNames(vis, scaleOf, anchorOf, iconScaleOf) {
   const seen = new Set();
   let i = 0;
+  lnameAt.clear();
   for (const v of vis) {
     if (seen.has(v.n.t)) continue;
     seen.add(v.n.t);
@@ -1967,20 +1998,28 @@ function drawLineNames(vis, scaleOf, anchorOf, iconScaleOf) {
     let deg = !isRoot && len > 40 ? Math.atan2(dy, dx) * 180 / Math.PI : 0;
     if (deg > 90) deg -= 180;
     else if (deg < -90) deg += 180;
-    /* Centred on its leg, but never across the far end of it, where it would
-       read as belonging to the climb beyond. */
-    const half = lblWidth(base.name) * sc / 2 + 4;
-    const t = len > 0 ? Math.max(0, Math.min(.5, (len - half) / len)) : .5;
+    /* Centred on the CLEAR part of its leg: past the parent's icon and a gap at
+       the near end, a gap short of the bend at the far end. Centring on the whole
+       leg put the text against the icon whenever the leg was short (Raven,
+       2026-10-08). labelRoom sizes the leg for exactly this; when it still comes
+       up short -- pulled back, where the icon is floored and the name is not --
+       the name stays centred between the two, sharing the overlap. */
+    const isc = iconScaleOf ? iconScaleOf(a.zv !== undefined ? a : b) : sc;
+    const near = ICON_HALF * isc + NAME_GAP * sc, far = NAME_GAP * sc;
+    const t = len > 0 ? (near + (len - near - far) / 2) / len : .5;
     el.style.left = (a.x + dx * t) + "px";
     /* A root's name clears its icon by the ICON's scale, not its own: icons are
        floored so they stay recognisable, so pulled back an icon is several
        times larger than the name. Half the icon, half the text, and a gap. */
-    const isc = iconScaleOf ? iconScaleOf(a.zv !== undefined ? a : b) : sc;
     el.style.top = (isRoot
       ? a.y + ICON_HALF * isc + LBL_PX * sc * .62 + 9
       : a.y + dy * t) + "px";
     el.style.transform = `translate(-50%,-50%) rotate(${deg.toFixed(1)}deg)`;
     el.style.color = rarCol(base);
+    // offsetHeight forces a layout, so it is read once and kept as a ratio.
+    if (!lnameLH && el.offsetHeight) lnameLH = el.offsetHeight / (LBL_PX * sc);
+    if (!isRoot) lnameAt.set(base.key, { x: a.x + dx * t, y: a.y + dy * t, deg,
+                                         hh: LBL_PX * sc * (lnameLH || 1.47) / 2 });
   }
   for (let k = i; k < lnamePool.length; k++) lnamePool[k].className = "lname hidden";
 }
@@ -2060,7 +2099,16 @@ function draw() {
     if (!filterHit(v.n)) op = Math.min(op, lit ? FILTER_DIM_LIT : FILTER_DIM);
     const rp = route(par, v.n), d = pathD(rp);
     if (!d) continue;
-    if (wantsSnip(v.n)) { const [mx, my] = polyMid(rp); pushSnip(snipAt, v, pp, mx, my); }
+    /* 2.5D prunes whole branches: one circle at the base of every branch, under
+       its name, shown always -- not one on each edge around the selection, which
+       put circles in the tight gaps between the weapons of a lane (Raven,
+       2026-10-08). A branch is a line that leaves another, so its first weapon
+       has a parent. If the name could not be written along the step (see
+       drawLineNames) the circle stays on the line, halfway along it. */
+    if (v.n.parent && lineBase(v.n.t) === v.n) {
+      const [mx, my] = polyMid(rp);
+      pushSnip(snipAt, v, mx, my, v.n.key);
+    }
     // 2D's width scales directly off its own plain zoom — no FOV/DIST term,
     // since there's no lens here for that to mean anything about.
     const wScale = viewMode === "2d" ? Math.min(1.3, zoom2d + .3) : Math.min(1.3, v.p.s * DIST / FOV + .3);
@@ -2094,7 +2142,6 @@ function draw() {
       }" stroke-opacity=".95" stroke-linecap="round" stroke-linejoin="round"/>`);
   }
   svg.innerHTML = seg.join("");
-  placeSnips(snipAt);
 
   while (pool.length < vis.length) {
     const el = document.createElement("div");
@@ -2152,7 +2199,7 @@ function draw() {
     el.style.opacity = op;
     el.className = "node " + v.cls + (selK === v.n.key ? " sel" : "") +
       (online ? " online" : "") + (isMade(v.n) ? " made" : "") +
-      (cutsAt(v.n).length ? " cut" : "");
+      (cutsAt(v.n).length ? " cut" : "") + " v25";
     /* The line and the one weapon you picked have to look different, or the
        whole line reads as selected. Being ON the line is said quietly — a
        coloured edge and a faint lift. Being THE selection is said loudly, with
@@ -2186,13 +2233,16 @@ function draw() {
       el.children[0].firstChild.src = (ICONS[CLASS] || {})[r] || "";
       el._rar = r; el._cls = CLASS;
     }
-    /* The weapons of the lane you clicked, each named -- the lane label gives
-       only its first weapon. MHGU names only where a line's name changes; in
-       3U every weapon on a lane is a different weapon, so the selected lane
-       names all of them. */
+    /* The weapons of the path you clicked, each named -- the lane label gives
+       only its first weapon. The whole lit path, not just the selected lane:
+       the lanes it climbed through from the root are named too (as MHGU Weapon
+       Trees, Raven 2026-10-08). MHGU names only where a line's name changes; in
+       3U every weapon on a lane is a different weapon, so every one is named. */
     const par = v.n.parent && N.get(v.n.parent);
     const lbl = el.children[1];
-    lbl.textContent = selLine != null && v.n.t === selLine && (!par || par.name !== v.n.name)
+    // Not a lane's first weapon: its lane name already says it, on the map at all
+    // times (Raven, 2026-10-08) -- a root's under its icon, a branch's along its step.
+    lbl.textContent = online && lineBase(v.n.t) !== v.n && (!par || par.name !== v.n.name)
       ? v.n.name : "";
     lbl.style.fontSize = (v.cls === "cur" ? 29 : 25) + "px";
   });
@@ -2219,6 +2269,8 @@ function draw() {
          would read as part of the climb. */
       return here ? [here, here] : null;
     }, iconScale);
+  underName(snipAt);
+  placeSnips(snipAt);
   for (let i = vis.length; i < pool.length; i++) pool[i].className = "node hidden";
   requestAnimationFrame(draw);
 }
@@ -2294,13 +2346,13 @@ function draw3d() {
         const d = Math.hypot(v.n.x3 - par.x3, v.n.y3 - par.y3, v.n.z3 - par.z3) * .55;
         const cp = project3d(par.x3 + t.x * d, par.y3 + t.y * d, par.z3 + t.z * d);
         if (!cp) continue;
-        if (wantsSnip(v.n)) { const [mx, my] = qMid(pp, cp, v.p); pushSnip(snipAt, v, pp, mx, my); }
+        if (wantsSnip(v.n)) { const [mx, my] = qMid(pp, cp, v.p); pushSnip(snipAt, v, mx, my); }
         seg.push(`<path d="M${pp.x.toFixed(1)} ${pp.y.toFixed(1)} Q${cp.x.toFixed(1)} ${
           cp.y.toFixed(1)} ${v.p.x.toFixed(1)} ${v.p.y.toFixed(1)}" fill="none" ` +
           `stroke="${stroke}" stroke-width="${(w * wScale).toFixed(2)}" ` +
           `stroke-opacity="${op.toFixed(2)}" stroke-linecap="round"/>`);
       } else {
-        if (wantsSnip(v.n)) pushSnip(snipAt, v, pp, (pp.x + v.p.x) / 2, (pp.y + v.p.y) / 2);
+        if (wantsSnip(v.n)) pushSnip(snipAt, v, (pp.x + v.p.x) / 2, (pp.y + v.p.y) / 2);
         seg.push(`<line x1="${pp.x.toFixed(1)}" y1="${pp.y.toFixed(1)}" x2="${
           v.p.x.toFixed(1)}" y2="${v.p.y.toFixed(1)}" stroke="${stroke}" ` +
           `stroke-width="${(w * wScale).toFixed(2)}" stroke-opacity="${op.toFixed(2)}" ` +
@@ -2318,13 +2370,13 @@ function draw3d() {
                            par.y3 + t.y * STEP3 * .55,
                            par.z3 + t.z * STEP3 * .55);
       if (!cp) continue;
-      if (wantsSnip(v.n)) { const [mx, my] = qMid(pp, cp, v.p); pushSnip(snipAt, v, pp, mx, my); }
+      if (wantsSnip(v.n)) { const [mx, my] = qMid(pp, cp, v.p); pushSnip(snipAt, v, mx, my); }
       seg.push(`<path d="M${pp.x.toFixed(1)} ${pp.y.toFixed(1)} Q${cp.x.toFixed(1)} ${
         cp.y.toFixed(1)} ${v.p.x.toFixed(1)} ${v.p.y.toFixed(1)}" fill="none" ` +
         `stroke="${stroke}" stroke-width="${(w * wScale).toFixed(2)}" ` +
         `stroke-opacity="${op.toFixed(2)}" stroke-linecap="round"/>`);
     } else if (shape3d === "bush") {
-      if (wantsSnip(v.n)) pushSnip(snipAt, v, pp, (pp.x + v.p.x) / 2, (pp.y + v.p.y) / 2);
+      if (wantsSnip(v.n)) pushSnip(snipAt, v, (pp.x + v.p.x) / 2, (pp.y + v.p.y) / 2);
       seg.push(`<line x1="${pp.x.toFixed(1)}" y1="${pp.y.toFixed(1)}" x2="${
         v.p.x.toFixed(1)}" y2="${v.p.y.toFixed(1)}" stroke="${stroke}" ` +
         `stroke-width="${(w * wScale).toFixed(2)}" stroke-opacity="${op.toFixed(2)}" ` +
@@ -2334,7 +2386,7 @@ function draw3d() {
       if (!corner) continue;
       if (wantsSnip(v.n)) {
         const [mx, my] = polyMid([[pp.x, pp.y], [corner.x, corner.y], [v.p.x, v.p.y]]);
-        pushSnip(snipAt, v, pp, mx, my);
+        pushSnip(snipAt, v, mx, my);
       }
       seg.push(`<polyline points="${pp.x.toFixed(1)},${pp.y.toFixed(1)} ${
         corner.x.toFixed(1)},${corner.y.toFixed(1)} ${v.p.x.toFixed(1)},${v.p.y.toFixed(1)}" ` +
@@ -3670,7 +3722,18 @@ document.getElementById("ramp").innerHTML = RARITY.slice(1)
 // Open straight into the first tree — the map is the thing worth seeing on
 // arrival. Boot through the same path a class switch uses. Great Sword is
 // first in WCLASSES (in-game weapon list order), so it's the default.
-switchClass("great_sword");
+/* Not until MHFU has arrived. The layout measures every lane name to size the
+   branch it is written on (labelRoom, branchGap), and caches the widths; built
+   synchronously here it measured them in the fallback font, about 8% narrower,
+   so every branch came out short of its name for the whole visit -- the names
+   ran into the icons (measured in MHGU Weapon Trees: Tiger Jawblade's leg was
+   739 units, where MHFU needs 786).
+   The font is embedded, so the wait is a few milliseconds; a failed load boots
+   anyway, in the fallback. draw() starts the frame loop, so it waits too. */
+function boot() {
+  switchClass("great_sword");
+  draw();
+}
 
 // Live getters — N/ROOTS/BOUNDS are swapped out on every class change, so a
 // snapshot object would hand back the previous class.
@@ -3683,7 +3746,8 @@ window.__P = { cam, cam3, project, proj, projectPersp, projectOrtho, project3d, 
   get activeRoot(){return activeRoot}, get viewMode(){return viewMode},
   set viewMode(v){ viewMode = v; }, get W(){return W}, get H(){return H},
   get zoom2d(){return zoom2d}, set zoom2d(v){ zoom2d = v; }, get tzoom2d(){return tzoom2d} };
-draw();
+if (document.fonts) document.fonts.load('600 60px "MHFU"').then(boot, boot);
+else boot();
 })();
 </script>
 </body>
