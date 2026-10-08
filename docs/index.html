@@ -141,6 +141,15 @@
   /* A made weapon is ticked on the map itself. Without that the tracker would
      only be readable one node at a time, through the detail pane, which is the
      opposite of what you want when the question is "what is left to build". */
+  /* Only the lane you have selected carries these on the map, and every weapon
+     carries one in 3D -- see draw() and draw3d(). Floored with the node rather
+     than scaled with the scene, because the point of them is to be read. */
+  .node .lbl{
+    display:inline-block; margin-top:9px; padding:0 5px; border-radius:4px;
+    background:rgba(0,0,0,.55); white-space:nowrap; font-weight:600;
+    letter-spacing:.2px; text-shadow:0 1px 2px #000;
+  }
+  .node .lbl:empty{display:none}
   .node .tick{
     position:absolute; right:-7px; top:-7px; display:none;
     width:30px; height:30px; border-radius:50%;
@@ -441,7 +450,7 @@
   <p><strong>3. Click any node</strong> for its full stats — attack, affinity, slots, element (in brackets when it needs Awaken), and whatever the class carries beyond that: charge levels (with Load Up), arc shot and coatings for Bow, reload, recoil, deviation and ammo for the Bowguns, phials for Switch Axe, notes and songs for Hunting Horn, shot level for Gunlance, sharpness (base and Sharpness +1) for every Blademaster weapon — plus what it costs to upgrade into it, and to forge it outright where the smithy allows that.</p>
   <p><strong>Snip</strong> &mdash; with a weapon selected, a small circle sits on each edge leading into and out of it. Click one to hide that branch and everything above it. The weapon below a cut gets a dashed ring; double-click it to restore that cut (or select it and press <strong>Restore</strong>), or use <strong>Restore all</strong> in the browsing panel.</p>
   <p><strong>Center On Node</strong> brings the weapon you have selected back to the middle; <strong>Center On Tree</strong> goes back out to the middle of the tree as a whole, which is where the view sat before you clicked anything. Neither changes how far in you are zoomed, and neither drops your selection. In 2.5D, the camera button reads <strong>Pan</strong> or <strong>Tilt</strong> for what a left-drag does right now, and the right button always does the other; <strong>Default tilt</strong> snaps back to the starting tilt.</p>
-  <p class="muted">Each upgrade in MH3U is a weapon of its own, so every node is one weapon. A run of upgrades is drawn as one straight lane: the first upgrade the game lists for a weapon carries its lane on, and any others branch off to the side. On the map and in 3D each lane is named once, after its first weapon, on the branch where it starts; click any weapon for its own name, or switch to 2D, which names every weapon.</p>
+  <p class="muted">Each upgrade in MH3U is a weapon of its own, so every node is one weapon. A run of upgrades is drawn as one straight lane: the first upgrade the game lists for a weapon carries its lane on, and any others branch off to the side. On the 2.5D map each lane is named once, after its first weapon, on the branch where it starts, and the names grow as you zoom in. Select a weapon and every weapon on its lane is named; 2D and 3D name every weapon.</p>
   <button id="helpClose">Close</button>
 </div></div>
 
@@ -814,6 +823,43 @@ function loadClass(slug) {
 const options = n => n.kids.slice();
 const stillOpen = () => [];
 
+/* How wide the step across has to be for a branch, in layout units: enough for
+   the name that will be written along it -- the lane's first weapon's name.
+   (MHGU Weapon Trees 44d62b0 / e991f35.)
+
+   Proportional rather than one number for all: XGAP alone gave a short name
+   and a long one the same 650 units. GAP_PER_PX converts the name's width at
+   25px into layout units; XGAP stays as the floor, so short names leave the
+   layout as it was and only long ones push their neighbours out. */
+const GAP_PER_PX = 3.7;        // ~650 for the median name, i.e. XGAP
+/* The step across has to be at least as long as the name written on it, or the
+   text runs past the bend into the climb.
+
+   Layout units, not pixels, and the conversion is exact rather than tuned. A
+   name is drawn at LBL_PX * DIST/zv pixels because it scales with the scene; a
+   world distance of W draws at W * FOV/zv. Equal when W = pixels * DIST/FOV.
+   The margin is for the gap the label leaves at each end.
+
+   This is the branch's OFFSET from its parent, which is not the same as the gap
+   above: that one is clearance between whole subtrees, and a branch can end up
+   closer to its parent than the clearance between the subtrees either side. */
+const LABEL_ROOM_MARGIN = 1.18;
+function labelRoom(n) {
+  return lblWidth(n.name) * (DIST / FOV) * LABEL_ROOM_MARGIN;
+}
+const _gapCache = new Map();
+function branchGap(n) {
+  let g = _gapCache.get(n.name);
+  if (g === undefined) {
+    const c = branchGap.ctx ||
+      (branchGap.ctx = document.createElement("canvas").getContext("2d"));
+    c.font = '600 25px "MHFU","Segoe UI",system-ui,sans-serif';
+    g = Math.max(XGAP, Math.round(c.measureText(n.name).width * GAP_PER_PX));
+    _gapCache.set(n.name, g);
+  }
+  return g;
+}
+
 /* ---------------- planar layout ----------------
    The tree is flat — it lies on the ground. Every line gets a tidy layout: the
    one you're on stays a straight lane running away from you, and each branch is
@@ -835,9 +881,13 @@ function layout() {
     let side = 1;
     for (const b of brs) {
       const e = place(b);
+      const child = N.get(b);
+      const gap = branchGap(child), need = labelRoom(child);
       let o;
-      if (side > 0) { o = max - e.min + XGAP; max = o + e.max; }
-      else { o = min - e.max - XGAP; min = o + e.min; }
+      // Clear of everything already placed, AND far enough out that the name
+      // written on the step across fits along it.
+      if (side > 0) { o = Math.max(max - e.min + gap, need); max = o + e.max; }
+      else { o = Math.min(min - e.max - gap, -need); min = o + e.min; }
       off.set(b, o);
       side = -side;
     }
@@ -1458,6 +1508,7 @@ function setPitch(p) {
   SIN = Math.sin(pitch); COS = Math.cos(pitch);
   mark();
 }
+const FIT_TIGHTEN = .62;      // how much of a tree a fit frames; see fitCamera
 const DIST = 1000, ANCHOR = .72;               // where the current node sits
 const cam = { x: 0, u: 0, tx: 0, tu: 0, dist: DIST, tdist: DIST };
 // "25d" (current, tilted) | "2d" (flat) | "3d" (not built — option stays disabled)
@@ -1482,6 +1533,33 @@ const stage = document.getElementById("stage");
 const svg = document.getElementById("edges");
 const layer = document.getElementById("nodes");
 const snipLayer = document.getElementById("snips");
+/* How big a lane's name is drawn, before the scene's scale is applied. It can
+   be this large without outgrowing the branch it is written on, because
+   labelRoom sizes that branch to the name at this size. */
+const LBL_PX = 60;
+/* A name's width at LBL_PX, cached -- offsetWidth would force a layout per
+   label per frame. */
+const _lblW = new Map();
+function lblWidth(name) {
+  let w = _lblW.get(name);
+  if (w === undefined) {
+    const c = lblWidth.ctx ||
+      (lblWidth.ctx = document.createElement("canvas").getContext("2d"));
+    c.font = `600 ${LBL_PX}px "MHFU","Segoe UI",system-ui,sans-serif`;
+    w = c.measureText(name).width + 10;        // the scrim's padding
+    _lblW.set(name, w);
+  }
+  return w;
+}
+/* A circle sits a little to the SIDE of its edge rather than squarely on it:
+   the lane's name is written along the middle of that edge, and a circle on top
+   of the text clips it. Perpendicular to the edge, so it stays beside the line
+   it belongs to whichever way the line runs. */
+const SNIP_OFFSET = 14;
+function pushSnip(list, v, pp, mx, my) {
+  const dx = v.p.x - pp.x, dy = v.p.y - pp.y, L = Math.hypot(dx, dy) || 1;
+  list.push({ k: v.n.key, x: mx - dy / L * SNIP_OFFSET, y: my + dx / L * SNIP_OFFSET });
+}
 // Pooled like the nodes are, since they are repositioned every frame the camera moves.
 function placeSnips(list) {
   while (snipLayer.children.length < list.length) {
@@ -1580,8 +1658,25 @@ const proj3 = n => project3d(n.x3, n.y3, n.z3);
 // ground, so it stays true under the tilt. The run is drawn with this too —
 // otherwise a branch taken late cuts diagonally across the board instead of
 // following the track that's actually shown.
+/* Where a line crosses the near plane, as a point on the ground.
+
+   proj() refuses anything nearer than zv = 90, which is right for a NODE but
+   wrong for a LINE, whose far end can be in full view while the near end is
+   behind you -- dropping the whole segment made lines disappear as you zoomed
+   in. zv is linear along the ground, cam.dist + (u - cam.u) * COS, so the
+   crossing solves directly. */
+function nearPoint(bad, good) {
+  const uCut = cam.u + (91 - cam.dist) / COS;
+  const du = good.u - bad.u;
+  if (Math.abs(du) < 1e-6) return null;
+  const t = (uCut - bad.u) / du;
+  if (!(t >= 0 && t <= 1)) return null;
+  return project(bad.x + (good.x - bad.x) * t, uCut);
+}
 function route(from, to) {
-  const a = proj(from), b = proj(to);
+  let a = proj(from), b = proj(to);
+  if (!a && b) a = nearPoint(from, to);
+  if (!b && a) b = nearPoint(to, from);
   if (!a || !b) return null;
   // Straight up the lane when there's no sideways move to make.
   if (Math.abs(from.x - to.x) <= 1) return [[a.x, a.y], [b.x, b.y]];
@@ -1813,6 +1908,7 @@ const mark = () => { dirty = true; };
    its own, and only the first is named on the map -- the rest are named in the
    detail pane, the upgrade list and the 2D view, which still labels every
    weapon. Raven's call (2026-10-07), knowing that. */
+// ICON_HALF (44, the .dot's half-height) is declared with the 2D label geometry.
 const lnameLayer = document.getElementById("lnames");
 const lnamePool = [];
 /* The weapon a lane STARTS with. Taken from the whole lane rather than from the
@@ -1833,7 +1929,7 @@ function lineBase(t) {
 }
 /* `anchorOf` hands back the two screen points to write between, which differ by
    view: see the callers. */
-function drawLineNames(vis, scaleOf, anchorOf) {
+function drawLineNames(vis, scaleOf, anchorOf, iconScaleOf) {
   const seen = new Set();
   let i = 0;
   for (const v of vis) {
@@ -1844,7 +1940,11 @@ function drawLineNames(vis, scaleOf, anchorOf) {
     const seg = anchorOf(base);
     if (!seg) continue;
     const [a, b] = seg;
-    const dx = b.x - a.x, dy = b.y - a.y;
+    // A root has no branch to be written along -- it is where a tree starts,
+    // not where one lane leaves another -- so its name sits under its icon,
+    // flat. Likewise when there is no step across to write along.
+    const isRoot = !base.parent || (b.x === a.x && b.y === a.y);
+    const dx = isRoot ? 0 : b.x - a.x, dy = isRoot ? 0 : b.y - a.y;
     const len = Math.hypot(dx, dy);
     while (lnamePool.length <= i) {
       const el = document.createElement("div");
@@ -1855,16 +1955,30 @@ function drawLineNames(vis, scaleOf, anchorOf) {
     const el = lnamePool[i++];
     el.className = "lname";
     el.textContent = base.name;
+    /* Scaled with the SCENE, not floored like the icons. The branch's step
+       across is sized in layout units to the name written on it, so the two
+       keep a fixed ratio at every distance and the name can never grow into
+       its neighbour. Pull back and both shrink; move in and both grow. */
     const sc = scaleOf(a.zv !== undefined ? a : b);
-    el.style.fontSize = (25 * sc).toFixed(1) + "px";
+    el.style.fontSize = (LBL_PX * sc).toFixed(2) + "px";
     /* Along the segment, flipped end for end past a quarter turn so it never
        reads upside down. Too short on screen to write along and it stays
        horizontal rather than being stood on end. */
-    let deg = len > 40 ? Math.atan2(dy, dx) * 180 / Math.PI : 0;
+    let deg = !isRoot && len > 40 ? Math.atan2(dy, dx) * 180 / Math.PI : 0;
     if (deg > 90) deg -= 180;
     else if (deg < -90) deg += 180;
-    el.style.left = (a.x + dx / 2) + "px";
-    el.style.top = (a.y + dy / 2) + "px";
+    /* Centred on its leg, but never across the far end of it, where it would
+       read as belonging to the climb beyond. */
+    const half = lblWidth(base.name) * sc / 2 + 4;
+    const t = len > 0 ? Math.max(0, Math.min(.5, (len - half) / len)) : .5;
+    el.style.left = (a.x + dx * t) + "px";
+    /* A root's name clears its icon by the ICON's scale, not its own: icons are
+       floored so they stay recognisable, so pulled back an icon is several
+       times larger than the name. Half the icon, half the text, and a gap. */
+    const isc = iconScaleOf ? iconScaleOf(a.zv !== undefined ? a : b) : sc;
+    el.style.top = (isRoot
+      ? a.y + ICON_HALF * isc + LBL_PX * sc * .62 + 9
+      : a.y + dy * t) + "px";
     el.style.transform = `translate(-50%,-50%) rotate(${deg.toFixed(1)}deg)`;
     el.style.color = rarCol(base);
   }
@@ -1897,7 +2011,11 @@ function draw() {
     const cls = classOf(n);
     if (!cls || isPruned(n)) continue;
     const p = proj(n);
-    if (!p || p.x < -300 || p.x > W + 300 || p.y < -200 || p.y > H + 200) continue;
+    /* Only what cannot be projected at all is dropped. The edges are drawn
+       from this same list -- one per node, back to its parent -- so a viewport
+       margin here made a line vanish as soon as its CHILD scrolled out of
+       frame, even while the line still crossed the screen. */
+    if (!p) continue;
     vis.push({ n, p, cls });
   }
   vis.sort((a, b) => RANK[a.cls] - RANK[b.cls]);
@@ -1920,7 +2038,8 @@ function draw() {
   for (const v of vis) {
     const par = v.n.parent && N.get(v.n.parent);
     if (!par) continue;
-    const pp = proj(par);
+    // In front of the camera is not a reason to drop the line; clip it instead.
+    const pp = proj(par) || nearPoint(par, v.n);
     if (!pp) continue;
     const pcls = classOf(par);
     let stroke = rarCol(v.n), w = 1.4, op = .62;
@@ -1941,7 +2060,7 @@ function draw() {
     if (!filterHit(v.n)) op = Math.min(op, lit ? FILTER_DIM_LIT : FILTER_DIM);
     const rp = route(par, v.n), d = pathD(rp);
     if (!d) continue;
-    if (wantsSnip(v.n)) { const [mx, my] = polyMid(rp); snipAt.push({ k: v.n.key, x: mx, y: my }); }
+    if (wantsSnip(v.n)) { const [mx, my] = polyMid(rp); pushSnip(snipAt, v, pp, mx, my); }
     // 2D's width scales directly off its own plain zoom — no FOV/DIST term,
     // since there's no lens here for that to mean anything about.
     const wScale = viewMode === "2d" ? Math.min(1.3, zoom2d + .3) : Math.min(1.3, v.p.s * DIST / FOV + .3);
@@ -1980,9 +2099,11 @@ function draw() {
   while (pool.length < vis.length) {
     const el = document.createElement("div");
     el.className = "node";
-    // The tick goes INSIDE .dot, after the img, so dotEl.firstChild is still
-    // the img -- it is indexed by position elsewhere in this file.
-    el.innerHTML = '<div class="dot"><img alt=""><b class="tick">&#10003;</b></div>';
+    // The tick goes INSIDE .dot, after the img, so el.children keeps its
+    // shape (0 = dot, 1 = label) and dotEl.firstChild is still the img -- both
+    // are indexed by position elsewhere in this file.
+    el.innerHTML = '<div class="dot"><img alt=""><b class="tick">&#10003;</b></div>' +
+      '<div class="lbl"></div>';
     el.addEventListener("click", ev => {
       ev.stopPropagation();
       // The second click of a double-click is part of the FIRST click's gesture.
@@ -1995,10 +2116,17 @@ function draw() {
     layer.appendChild(el); pool.push(el);
   }
   const selK = sel();
+  /* The floor on how small an icon may be drawn is what keeps one readable at
+     a distance. It drops with no tree picked: "Whole class" puts every weapon
+     of the class on screen a couple of pixels apart, and a full-size floor
+     turns that into a solid mass. Hoisted out of the loop because the lane
+     names need it too -- a root's name has to clear the icon above it. */
+  const floor = activeRoot ? .32 : .2;
+  const iconScale = q => viewMode === "2d" ? Math.max(floor, Math.min(1.4, zoom2d))
+    : Math.max(floor, Math.min(1.2, q && q.zv ? DIST / q.zv : 1));
   vis.forEach((v, i) => {
     const el = pool[i], a = ahead.get(v.n.key);
-    const sc = viewMode === "2d" ? Math.max(.4, Math.min(1.4, zoom2d))
-      : Math.max(.4, Math.min(1.2, v.p.zv ? DIST / v.p.zv : 1));
+    const sc = iconScale(v.p);
     el._key = v.n.key;
     el.style.left = v.p.x + "px"; el.style.top = v.p.y + "px";
     el.style.zIndex = 1000 + i;
@@ -2058,26 +2186,39 @@ function draw() {
       el.children[0].firstChild.src = (ICONS[CLASS] || {})[r] || "";
       el._rar = r; el._cls = CLASS;
     }
+    /* The weapons of the lane you clicked, each named -- the lane label gives
+       only its first weapon. MHGU names only where a line's name changes; in
+       3U every weapon on a lane is a different weapon, so the selected lane
+       names all of them. */
+    const par = v.n.parent && N.get(v.n.parent);
+    const lbl = el.children[1];
+    lbl.textContent = selLine != null && v.n.t === selLine && (!par || par.name !== v.n.name)
+      ? v.n.name : "";
+    lbl.style.fontSize = (v.cls === "cur" ? 29 : 25) + "px";
   });
   /* The name goes on the FIRST leg of the branch's bend -- the step across at
      the parent's own level, where the lane departs -- not the climb that
      follows. That leg runs between lanes, which is empty, while the climb runs
      up a lane past the weapons themselves. route() turns the same corner. */
   drawLineNames(vis,
-    p => viewMode === "2d" ? Math.max(.4, Math.min(1.4, zoom2d))
-       : Math.max(.4, Math.min(1.2, p.zv ? DIST / p.zv : 1)),
+    // No lower clamp: a floor is what kept names from shrinking with the
+    // scene, and so what made them collide when pulled back.
+    p => viewMode === "2d" ? Math.min(1.4, zoom2d)
+       : Math.min(1.2, p.zv ? DIST / p.zv : 1),
     base => {
+      const here = proj(base);
       const par = base.parent && N.get(base.parent);
       if (par && Math.abs(par.x - base.x) > 1) {
-        const a = proj(par), c = project(base.x, par.u);
+        const a = proj(par) || nearPoint(par, base);
+        const c = project(base.x, par.u);
         if (a && c) return [a, c];
       }
-      // A root, or a lane that continues straight up: write it along its own
-      // first step instead.
-      const a = proj(base), kid = base.kids.map(k => N.get(k)).find(k => k && k.t === base.t);
-      const b = kid && proj(kid);
-      return a && b ? [a, b] : a ? [a, a] : null;
-    });
+      /* No usable step across -- a root, a lane that carries straight on, or a
+         bend whose far end is behind the camera. The name goes UNDER the
+         weapon, flat, the way a root's does, rather than up the lane where it
+         would read as part of the climb. */
+      return here ? [here, here] : null;
+    }, iconScale);
   for (let i = vis.length; i < pool.length; i++) pool[i].className = "node hidden";
   requestAnimationFrame(draw);
 }
@@ -2153,13 +2294,13 @@ function draw3d() {
         const d = Math.hypot(v.n.x3 - par.x3, v.n.y3 - par.y3, v.n.z3 - par.z3) * .55;
         const cp = project3d(par.x3 + t.x * d, par.y3 + t.y * d, par.z3 + t.z * d);
         if (!cp) continue;
-        if (wantsSnip(v.n)) { const [mx, my] = qMid(pp, cp, v.p); snipAt.push({ k: v.n.key, x: mx, y: my }); }
+        if (wantsSnip(v.n)) { const [mx, my] = qMid(pp, cp, v.p); pushSnip(snipAt, v, pp, mx, my); }
         seg.push(`<path d="M${pp.x.toFixed(1)} ${pp.y.toFixed(1)} Q${cp.x.toFixed(1)} ${
           cp.y.toFixed(1)} ${v.p.x.toFixed(1)} ${v.p.y.toFixed(1)}" fill="none" ` +
           `stroke="${stroke}" stroke-width="${(w * wScale).toFixed(2)}" ` +
           `stroke-opacity="${op.toFixed(2)}" stroke-linecap="round"/>`);
       } else {
-        if (wantsSnip(v.n)) snipAt.push({ k: v.n.key, x: (pp.x + v.p.x) / 2, y: (pp.y + v.p.y) / 2 });
+        if (wantsSnip(v.n)) pushSnip(snipAt, v, pp, (pp.x + v.p.x) / 2, (pp.y + v.p.y) / 2);
         seg.push(`<line x1="${pp.x.toFixed(1)}" y1="${pp.y.toFixed(1)}" x2="${
           v.p.x.toFixed(1)}" y2="${v.p.y.toFixed(1)}" stroke="${stroke}" ` +
           `stroke-width="${(w * wScale).toFixed(2)}" stroke-opacity="${op.toFixed(2)}" ` +
@@ -2177,13 +2318,13 @@ function draw3d() {
                            par.y3 + t.y * STEP3 * .55,
                            par.z3 + t.z * STEP3 * .55);
       if (!cp) continue;
-      if (wantsSnip(v.n)) { const [mx, my] = qMid(pp, cp, v.p); snipAt.push({ k: v.n.key, x: mx, y: my }); }
+      if (wantsSnip(v.n)) { const [mx, my] = qMid(pp, cp, v.p); pushSnip(snipAt, v, pp, mx, my); }
       seg.push(`<path d="M${pp.x.toFixed(1)} ${pp.y.toFixed(1)} Q${cp.x.toFixed(1)} ${
         cp.y.toFixed(1)} ${v.p.x.toFixed(1)} ${v.p.y.toFixed(1)}" fill="none" ` +
         `stroke="${stroke}" stroke-width="${(w * wScale).toFixed(2)}" ` +
         `stroke-opacity="${op.toFixed(2)}" stroke-linecap="round"/>`);
     } else if (shape3d === "bush") {
-      if (wantsSnip(v.n)) snipAt.push({ k: v.n.key, x: (pp.x + v.p.x) / 2, y: (pp.y + v.p.y) / 2 });
+      if (wantsSnip(v.n)) pushSnip(snipAt, v, pp, (pp.x + v.p.x) / 2, (pp.y + v.p.y) / 2);
       seg.push(`<line x1="${pp.x.toFixed(1)}" y1="${pp.y.toFixed(1)}" x2="${
         v.p.x.toFixed(1)}" y2="${v.p.y.toFixed(1)}" stroke="${stroke}" ` +
         `stroke-width="${(w * wScale).toFixed(2)}" stroke-opacity="${op.toFixed(2)}" ` +
@@ -2193,7 +2334,7 @@ function draw3d() {
       if (!corner) continue;
       if (wantsSnip(v.n)) {
         const [mx, my] = polyMid([[pp.x, pp.y], [corner.x, corner.y], [v.p.x, v.p.y]]);
-        snipAt.push({ k: v.n.key, x: mx, y: my });
+        pushSnip(snipAt, v, pp, mx, my);
       }
       seg.push(`<polyline points="${pp.x.toFixed(1)},${pp.y.toFixed(1)} ${
         corner.x.toFixed(1)},${corner.y.toFixed(1)} ${v.p.x.toFixed(1)},${v.p.y.toFixed(1)}" ` +
@@ -2207,9 +2348,11 @@ function draw3d() {
   while (pool.length < vis.length) {
     const el = document.createElement("div");
     el.className = "node";
-    // The tick goes INSIDE .dot, after the img, so dotEl.firstChild is still
-    // the img -- it is indexed by position elsewhere in this file.
-    el.innerHTML = '<div class="dot"><img alt=""><b class="tick">&#10003;</b></div>';
+    // The tick goes INSIDE .dot, after the img, so el.children keeps its
+    // shape (0 = dot, 1 = label) and dotEl.firstChild is still the img -- both
+    // are indexed by position elsewhere in this file.
+    el.innerHTML = '<div class="dot"><img alt=""><b class="tick">&#10003;</b></div>' +
+      '<div class="lbl"></div>';
     el.addEventListener("click", ev => {
       ev.stopPropagation();
       // The second click of a double-click is part of the FIRST click's gesture.
@@ -2280,20 +2423,17 @@ function draw3d() {
       el.children[0].firstChild.src = (ICONS[CLASS] || {})[r] || "";
       el._rar = r; el._cls = CLASS;
     }
+    /* 3D names every weapon, as it did before lane names went in -- those are
+       a 2.5D arrangement. They lean on the bend in a route and on a branch's
+       step across being sized to its name, and 3D has neither: written along
+       a 3D branch the names floated off the curve the edge actually draws and
+       shrank to about a pixel, since a shape spans tens of thousands of units.
+       (MHGU Weapon Trees reverted it the same way, e991f35.) */
+    const show = sc > .32;
+    const lbl = el.children[1];
+    lbl.textContent = show ? v.n.name : "";
+    lbl.style.fontSize = (v.cls === "cur" ? 29 : 25) + "px";
   });
-  // 3D has no corner to turn: the branch is the hop from the parent weapon to
-  // the lane's first, so the name is written along that.
-  drawLineNames(vis, p => Math.max(.35, Math.min(1.3, DIST / p.zv)),
-    base => {
-      const par = base.parent && N.get(base.parent);
-      const a = proj3(base);
-      if (!a) return null;
-      const b = par && proj3(par);
-      if (b) return [b, a];
-      const kid = base.kids.map(k => N.get(k)).find(k => k && k.t === base.t);
-      const c = kid && proj3(kid);
-      return c ? [a, c] : [a, a];
-    });
   for (let i = vis.length; i < pool.length; i++) pool[i].className = "node hidden";
 }
 
@@ -2674,7 +2814,12 @@ function fitCamera(rootKey) {
     if (du > 0) dist = Math.max(dist, FOV * du * SIN / topRoom - du * COS);
     else if (du < 0) dist = Math.max(dist, FOV * -du * SIN / botRoom - du * COS);
   }
-  return { tx: cx, tu: cu, dist };
+  /* Framed CLOSER than the whole tree, on purpose. Fitting all of it leaves
+     each weapon less screen than an icon takes, so everything touches. Spacing
+     the tree out in layout units cannot help -- the fit re-measures whatever it
+     is given -- so the one thing that gives a weapon more room is giving it more
+     of the screen, and panning for the rest. (MHGU Weapon Trees e991f35.) */
+  return { tx: cx, tu: cu, dist: dist * FIT_TIGHTEN };
 }
 // Branches by mode so every existing caller — click-to-inspect, Center On Node, the
 // run flow — carries over to 3D without each one needing its own case.
@@ -2911,7 +3056,8 @@ function applyViewMode() {
   svg.style.display = is2d ? "none" : "";
   layer.style.display = is2d ? "none" : "";
   snipLayer.style.display = is2d ? "none" : "";
-  lnameLayer.style.display = is2d ? "none" : "";
+  // Lane names are a 2.5D arrangement; 3D names each weapon instead.
+  lnameLayer.style.display = (is2d || viewMode === "3d") ? "none" : "";
   if (!is2d) flatTip.style.display = "none";
   updateWholeClassOption();
   fitActive(activeRoot);
