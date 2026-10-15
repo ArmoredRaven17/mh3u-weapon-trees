@@ -775,7 +775,7 @@ function unpack(slug, L) {
 
 /* L = [id, name, attack (displayed), affinity, defense, slots, element, class
         payload, upgrade materials, sharpness, rarity, create materials, true raw,
-        polish -- [[shard, chance %]]].
+        appraise -- [[shard, chance %]]].
    An element is [name, displayed, needs Awaken, true]. The build derives both
    true values from the displayed ones -- see scripts/build.py.
    A tree is one line: {i, n, r, p: the weapon id it branches off (0 = a root),
@@ -792,7 +792,7 @@ function loadClass(slug) {
       key, id: L[0], t: t.i, lv: j + 1, name: L[1],
       raw: L[2], aff: L[3], def: L[4], slots: L[5], ele: L[6] || [],
       mats: L[8] || null, sharp: L[9] || null,   // blademaster only
-      rar: L[10] || 1, create: L[11] || null, trueRaw: L[12], polish: L[13] || null,
+      rar: L[10] || 1, create: L[11] || null, trueRaw: L[12], appraise: L[13] || null,
       kids: [], parent: null, depth: 0, x: 0, u: 0, x3: 0, y3: 0, z3: 0, dir3: 0,
     }, unpack(slug, L)));
   });
@@ -3571,12 +3571,14 @@ function renderDetail() {
   const from = n.parent && N.get(n.parent);
   if (n.mats) h += `<div class="sect">Upgrade${from ? ` from ${from.name}` : ""}</div>${matTable(n.mats)}`;
   if (n.create) h += `<div class="sect">Create</div>${matTable(n.create)}`;
-  /* Polishing a shard at the smithy is a weighted random draw (READ 0x898b0c,
-     in the MH3U tracker's build): one shard per try, and this weapon comes out
-     that % of the time. The Rusted and Worn weapons come only from here. */
-  if (n.polish) h += `<div class="sect">Polish</div><table class="ammo">${
-    n.polish.map(([i, pct]) => `<tr><td>${MATS[i]} ×1</td><td>${pct}% chance</td></tr>`).join("")}</table>`;
-  if (!n.mats && !n.create && !n.polish) h += `<div class="sect">Materials</div>
+  /* Appraising a shard among the quest rewards -- the game's own word -- is a
+     weighted random draw (READ 0x898b0c, in the MH3U tracker's build): this
+     weapon comes out of that shard that % of the time. The Rusted and Worn
+     weapons come only from here. */
+  // Not a recipe: the weapon is obtained, from a shard the game appraises.
+  if (n.appraise) h += `<div class="sect">Obtain</div><table class="ammo">${
+    n.appraise.map(([i, pct]) => `<tr><td>Appraise ${/^[AEIOU]/i.test(MATS[i]) ? "an" : "a"} ${MATS[i]}</td><td>${pct}% chance</td></tr>`).join("")}</table>`;
+  if (!n.mats && !n.create && !n.appraise) h += `<div class="sect">Materials</div>
     <div class="mlist">No create or upgrade recipe in the game's tables.</div>`;
 
   if (c && options(c).includes(n.key))

@@ -170,7 +170,7 @@ def build_class(cls, cat):
                 sharp, st['rar'],
                 rec.get('d'),
                 raw,
-                rec.get('p')]       # polishing a shard: [[shard, chance %]] (newer tracker data)
+                rec.get('p')]       # appraising a shard: [[shard, chance %]] (newer tracker data)
 
     # Lines, depth first in the tracker's tree order so related lines sit together.
     trees = []
