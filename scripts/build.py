@@ -109,12 +109,13 @@ def extra(cls, st, S):
     if cls == 'gunlance':
         return [S(st['shell'])]
     if cls == 'bow':
-        # The tracker's newer shape: charges [name, loadUp], coatings [label, icon, colour].
+        # The tracker's newer shape: charges [name, loadUp], coatings [label, icon, colour, boosted].
         # Plain strings are the older shape, still read so an older tracker checkout builds.
         charges = [c if isinstance(c, list) else [c, 0] for c in st['charges']]
         return [S(st['arc']) if st.get('arc') else -1,
                 [[S(re.sub(r' L(\d)$', r' Lv\1', name)), load_up] for name, load_up in charges],
-                [S(c[0] if isinstance(c, list) else c) for c in st['coatings']]]
+                [[S(c[0]), c[3] if len(c) > 3 else 0] if isinstance(c, list) else [S(c), 0]
+                 for c in st['coatings']]]
     if cls in ('light_bowgun', 'heavy_bowgun'):
         groups, order = {}, []
         for name, cap in st['ammo']:          # in the game's item order: Normal S Lv1, Lv2, ...
@@ -125,7 +126,11 @@ def extra(cls, st, S):
                 order.append(base)
             groups[base][lv] = cap
         ammo = [[S(b), [groups[b].get(lv, 0) for lv in range(1, max(groups[b]) + 1)]] for b in order]
-        return [S(st['reload']), S(st['recoil']), S(st['deviation']), ammo]
+        # Special fire, from newer tracker data: LBG rapid [[ammo, shots]], HBG crouch [[ammo, carry
+        # limit or null = unlimited]] (-1 here for null).
+        rapid = [[S(n), shots] for n, shots in st.get('rapid', [])]
+        crouch = [[S(n), -1 if cap is None else cap] for n, cap in st.get('crouch', [])]
+        return [S(st['reload']), S(st['recoil']), S(st['deviation']), ammo, rapid, crouch]
     return []
 
 
@@ -224,10 +229,10 @@ def main():
                 game_coats[c[0]] = c
     if game_coats:
         # The game's own coating bottles (44 px, doubled from its 22 px cells by the tracker).
-        coats = {'map': {label: icon for label, icon, _ in game_coats.values()},
-                 'col': {icon: {'c': col, 'i': data_uri(os.path.join(TDOCS, 'assets', 'coatings', icon + '.png'),
+        coats = {'map': {c[0]: c[1] for c in game_coats.values()},
+                 'col': {c[1]: {'c': c[2], 'i': data_uri(os.path.join(TDOCS, 'assets', 'coatings', c[1] + '.png'),
                                                          'image/png')}
-                         for _, icon, col in game_coats.values()}}
+                         for c in game_coats.values()}}
     else:
         coats = {'map': COATING_ICON, 'col': {k: gu['COATS']['col'][k] for k in set(COATING_ICON.values())}}
 
