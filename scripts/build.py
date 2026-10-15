@@ -126,9 +126,10 @@ def extra(cls, st, S):
                 order.append(base)
             groups[base][lv] = cap
         ammo = [[S(b), [groups[b].get(lv, 0) for lv in range(1, max(groups[b]) + 1)]] for b in order]
-        # Special fire, from newer tracker data: LBG rapid [[ammo, shots]], HBG crouch [[ammo, carry
-        # limit or null = unlimited]] (-1 here for null).
-        rapid = [[S(n), shots] for n, shots in st.get('rapid', [])]
+        # Special fire, from newer tracker data: LBG rapid [[ammo, shots, power %, wait]], HBG crouch
+        # [[ammo, carry limit or null = unlimited]] (-1 here for null).
+        rapid = [[S(r[0]), r[1], r[2] if len(r) > 2 else -1, S(r[3]) if len(r) > 3 else -1]
+                 for r in st.get('rapid', [])]
         crouch = [[S(n), -1 if cap is None else cap] for n, cap in st.get('crouch', [])]
         return [S(st['reload']), S(st['recoil']), S(st['deviation']), ammo, rapid, crouch]
     return []
@@ -168,7 +169,8 @@ def build_class(cls, cat):
                 rec['f'][2] if 'f' in rec else None,
                 sharp, st['rar'],
                 rec.get('d'),
-                raw]
+                raw,
+                rec.get('p')]       # polishing a shard: [[shard, chance %]] (newer tracker data)
 
     # Lines, depth first in the tracker's tree order so related lines sit together.
     trees = []
