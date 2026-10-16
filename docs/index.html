@@ -339,6 +339,13 @@
   .coat{font-size:11px;border:1px solid var(--line);border-radius:4px;padding:1px 6px 1px 3px;
         color:#a89f8c;display:inline-flex;align-items:center;gap:3px}
   .coat img{width:15px;height:15px;display:block}
+  /* Bow coatings as a list, one per row across the pane, rather than pills that
+     wrap (Raven, 2026-10-16). Notes and the other pill rows keep wrapping. */
+  .coats.clist{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:3px}
+  .coats.clist .coat{font-size:12px;padding:2px 8px 2px 4px;gap:5px;border-color:rgba(255,255,255,.18)}
+  /* A boosted coating lights its pill up -- filled and glowing in the coating's
+     own colour (set inline, as the border is) -- in place of a "Boost" tag. */
+  .coats.clist .coat.lit{font-weight:600;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.85)}
   /* Hunting Horn songs: the notes to play, as the game's own glyphs, then the effect. */
   table.songs{width:100%;border-collapse:collapse}
   table.songs td{padding:1px 0;font-size:12px;vertical-align:middle}
@@ -3523,15 +3530,21 @@ function renderDetail() {
           shotCol(c.shot)}">${c.shot}</span>${
           c.loadUp ? ' <span class="lu-tag">Load Up</span>' : ""}</td></tr>`).join("")}</table>`;
   }
-  if (n.coatings && n.coatings.length) h += `<div class="sect">Coatings</div><div class="coats">${
+  /* One coating per row. A boosted coating lights its pill up -- filled and
+     glowing in its own colour -- instead of carrying a "Boost" tag (Raven,
+     2026-10-16); the title still names it on hover. */
+  if (n.coatings && n.coatings.length) h += `<div class="sect">Coatings</div><div class="coats clist">${
     n.coatings.map(({ name: x, boost }) => {
       const c = COATS.col[COATS.map[x]];
       // "Power Coating" and "Power Coating 2" both lose the noise word
       const label = x.replace(/\s*Coating\s*/, " ").trim();
-      // A boosted coating carries the tag, as Load Up does on a charge.
-      return `<span class="coat" style="${c ? `color:${c.c};border-color:${c.c}55` : ""}"${
+      const col = c ? c.c : "#f0c264";
+      const style = boost
+        ? `border-color:${col};background:${col}5c;box-shadow:0 0 10px ${col}99,inset 0 0 8px ${col}66`
+        : c ? `color:${c.c};border-color:${c.c}55` : "";
+      return `<span class="coat${boost ? " lit" : ""}" style="${style}"${
         boost ? ' title="Boosted coating"' : ""}>${
-        c ? `<img src="${c.i}" alt="">` : ""}${label}${boost ? '<span class="lu-tag">Boost</span>' : ""}</span>`;
+        c ? `<img src="${c.i}" alt="">` : ""}${label}</span>`;
     }).join("")}</div>`;
   if (n.sharp) h += `<div class="sect">Sharpness</div>${
     n.sharp.map((row, i) => `<div class="sharp-wrap"><span class="sharp-label">${
